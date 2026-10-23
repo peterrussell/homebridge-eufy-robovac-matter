@@ -2,7 +2,7 @@
  * Plugin identifiers. PLATFORM_NAME must match the `platform` value in the
  * Homebridge config and the `pluginAlias` in config.schema.json.
  */
-export const PLUGIN_NAME = 'homebridge-eufy-robovac-matter';
+export const PLUGIN_NAME = 'homebridge-eufy-clean-robovac-matter';
 export const PLATFORM_NAME = 'EufyRobovacMatter';
 
 /** How long a cached status is considered fresh before a new fetch (ms). */
