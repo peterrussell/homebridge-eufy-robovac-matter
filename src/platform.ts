@@ -1,16 +1,28 @@
 /**
  * Homebridge dynamic platform. On launch it publishes one native Matter
- * Robotic Vacuum Cleaner per configured Eufy RoboVac via `api.matter`.
+ * Robotic Vacuum Cleaner per configured Eufy RoboVac via `api.matter`, choosing
+ * a control backend per device:
+ *   - local Tuya LAN  (deviceId + localKey)       -> TuyaLocalBackend
+ *   - eufy/Tuya cloud (eufy email + password)      -> EufyCloudBackend
  *
  * The robot vacuums are Matter accessories, not HAP accessories, so there are
  * no cached `PlatformAccessory` objects to restore; `configureAccessory` only
- * cleans up any stale HAP accessories from earlier versions.
+ * cleans up stale HAP accessories from earlier versions.
  */
 
 import type { API, DynamicPlatformPlugin, Logging, PlatformAccessory, PlatformConfig } from 'homebridge';
 
-import { registerEufyMatterVacuum, type EufyDeviceConfig } from './matter-vacuum';
+import type { VacuumBackend } from './backends/backend';
+import { TuyaLocalBackend } from './backends/tuya-local-backend';
+import { EufyCloudBackend } from './backends/eufy-cloud-backend';
+import { registerEufyMatterVacuum } from './matter-vacuum';
 import { PLATFORM_NAME, PLUGIN_NAME } from './settings';
+
+interface DeviceEntry {
+    name: string;
+    serial: string;
+    backend: VacuumBackend;
+}
 
 export class EufyRobovacMatterPlatform implements DynamicPlatformPlugin {
     private readonly staleAccessories: PlatformAccessory[] = [];
@@ -26,8 +38,8 @@ export class EufyRobovacMatterPlatform implements DynamicPlatformPlugin {
     }
 
     configureAccessory(accessory: PlatformAccessory): void {
-        // Nothing to restore - this platform only exposes Matter devices.
-        // Remember any leftover HAP accessory so we can remove it after launch.
+        // This platform only exposes Matter devices; remember any leftover HAP
+        // accessory so we can remove it after launch.
         this.staleAccessories.push(accessory);
     }
 
@@ -46,15 +58,15 @@ export class EufyRobovacMatterPlatform implements DynamicPlatformPlugin {
             return;
         }
 
-        const devices = this.parseDevices();
+        const devices = this.buildDevices();
         if (devices.length === 0) {
-            this.log.warn('No devices configured. Add at least one RoboVac (name + deviceId + localKey) to the plugin config.');
+            this.log.warn('No devices configured. Add at least one RoboVac to the plugin config.');
             return;
         }
 
         for (const device of devices) {
             try {
-                await registerEufyMatterVacuum(this.api, this.log, device);
+                await registerEufyMatterVacuum(this.api, this.log, { name: device.name, serial: device.serial }, device.backend);
             } catch (error: unknown) {
                 const message = error instanceof Error ? error.message : String(error);
                 this.log.error(`[${device.name}] Failed to publish Matter vacuum: ${message}`);
@@ -62,24 +74,47 @@ export class EufyRobovacMatterPlatform implements DynamicPlatformPlugin {
         }
     }
 
-    /** Validate and normalise the `devices` array from the plugin config. */
-    private parseDevices(): EufyDeviceConfig[] {
+    /** Validate config and construct the appropriate backend for each device. */
+    private buildDevices(): DeviceEntry[] {
         const raw = Array.isArray(this.config.devices) ? this.config.devices : [];
-        const devices: EufyDeviceConfig[] = [];
+        const devices: DeviceEntry[] = [];
 
         for (const entry of raw as Array<Record<string, unknown>>) {
+            const name = typeof entry.name === 'string' && entry.name.trim() !== '' ? entry.name.trim() : 'Eufy RoboVac';
             const deviceId = typeof entry.deviceId === 'string' ? entry.deviceId.trim() : '';
             const localKey = typeof entry.localKey === 'string' ? entry.localKey.trim() : '';
-            const name = typeof entry.name === 'string' && entry.name.trim() !== '' ? entry.name.trim() : 'Eufy RoboVac';
             const deviceIp = typeof entry.deviceIp === 'string' && entry.deviceIp.trim() !== '' ? entry.deviceIp.trim() : undefined;
             const protocolVersion = typeof entry.protocolVersion === 'string' && entry.protocolVersion.trim() !== '' ? entry.protocolVersion.trim() : undefined;
+            const email = typeof entry.email === 'string' ? entry.email.trim() : '';
+            const password = typeof entry.password === 'string' ? entry.password : '';
+            const requestedBackend = typeof entry.backend === 'string' ? entry.backend.trim().toLowerCase() : 'auto';
 
-            if (!deviceId || !localKey) {
-                this.log.warn(`Skipping device "${name}": both deviceId and localKey are required.`);
+            // Decide backend: explicit `backend`, else infer from the fields present.
+            const useCloud =
+                requestedBackend === 'cloud' || (requestedBackend === 'auto' && !localKey && !!email && !!password);
+
+            if (useCloud) {
+                if (!email || !password || !deviceId) {
+                    this.log.warn(`Skipping "${name}": cloud backend needs email, password and deviceId.`);
+                    continue;
+                }
+                devices.push({
+                    name,
+                    serial: deviceId,
+                    backend: new EufyCloudBackend({ name, email, password, deviceId }, this.log),
+                });
                 continue;
             }
 
-            devices.push({ name, deviceId, localKey, deviceIp, protocolVersion });
+            if (!deviceId || !localKey) {
+                this.log.warn(`Skipping "${name}": local backend needs both deviceId and localKey (or configure email/password for cloud).`);
+                continue;
+            }
+            devices.push({
+                name,
+                serial: deviceId,
+                backend: new TuyaLocalBackend({ name, deviceId, localKey, deviceIp, protocolVersion }, this.log),
+            });
         }
 
         return devices;

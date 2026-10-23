@@ -3,7 +3,7 @@
   "pluginType": "platform",
   "singular": true,
   "headerDisplay": "Exposes Eufy RoboVac robots as **native Matter Robotic Vacuum Cleaner** devices through Homebridge 2's Matter support. Requires Homebridge 2.0+ with Matter enabled on this (child) bridge, and a Matter controller (Apple Home needs iOS 18.4+).",
-  "footerDisplay": "You need each robot's **deviceId** and **localKey**. See the README for how to obtain them with the eufy-clean-local-key-grabber. Control is local (Tuya LAN); the robot must be on the same network as Homebridge.",
+  "footerDisplay": "Two control backends: **Local** (older/legacy models, needs deviceId + localKey) and **Cloud** (newer 'novel' models like the L60, needs your eufy email + password). See the README.",
   "schema": {
     "type": "object",
     "properties": {
@@ -27,37 +27,57 @@
               "required": true,
               "description": "Name for this robot (shown in your Matter/Home app)."
             },
+            "backend": {
+              "title": "Control backend",
+              "type": "string",
+              "default": "auto",
+              "oneOf": [
+                { "title": "Auto (local if localKey set, else cloud)", "enum": ["auto"] },
+                { "title": "Local (Tuya LAN) - older/legacy models", "enum": ["local"] },
+                { "title": "Cloud (eufy account) - novel models e.g. L60", "enum": ["cloud"] }
+              ],
+              "description": "How to control the robot. Novel models (L60 etc.) only work over Cloud."
+            },
             "deviceId": {
               "title": "Device ID",
               "type": "string",
               "required": true,
-              "description": "The robot's Tuya device ID."
+              "description": "The robot's Tuya/eufy device ID (required for both backends)."
             },
             "localKey": {
-              "title": "Local Key",
+              "title": "Local Key (local backend)",
               "type": "string",
-              "required": true,
-              "description": "The robot's Tuya local key."
+              "description": "The robot's Tuya local key. Required for the Local backend."
             },
             "deviceIp": {
-              "title": "Device IP (optional)",
+              "title": "Device IP (local backend, optional)",
               "type": "string",
               "format": "ipv4",
-              "required": false,
-              "description": "Static IP of the robot. Optional, but setting it improves performance and reliability."
+              "description": "Static IP of the robot. Optional, improves local performance."
             },
             "protocolVersion": {
-              "title": "Tuya protocol version",
+              "title": "Tuya protocol version (local backend)",
               "type": "string",
               "default": "3.3",
-              "required": false,
               "oneOf": [
                 { "title": "3.3 (most models)", "enum": ["3.3"] },
                 { "title": "3.4 (many 2023+ models)", "enum": ["3.4"] },
                 { "title": "3.5 (newest models)", "enum": ["3.5"] },
                 { "title": "3.1 (older models)", "enum": ["3.1"] }
               ],
-              "description": "Tuya LAN protocol version. If the robot connects but every command times out, try 3.4, then 3.5."
+              "description": "Local Tuya LAN protocol version. If local connects but times out, try 3.4 then 3.5."
+            },
+            "email": {
+              "title": "Eufy email (cloud backend)",
+              "type": "string",
+              "format": "email",
+              "description": "Your eufy account email. Required for the Cloud backend."
+            },
+            "password": {
+              "title": "Eufy password (cloud backend)",
+              "type": "string",
+              "description": "Your eufy account password. Required for the Cloud backend.",
+              "x-schema-form": { "type": "password" }
             }
           }
         }
@@ -71,7 +91,16 @@
       "type": "array",
       "title": "RoboVacs",
       "buttonText": "Add RoboVac",
-      "items": ["devices[].name", "devices[].deviceId", "devices[].localKey", "devices[].deviceIp"]
+      "items": [
+        "devices[].name",
+        "devices[].backend",
+        "devices[].deviceId",
+        "devices[].localKey",
+        "devices[].deviceIp",
+        "devices[].protocolVersion",
+        "devices[].email",
+        "devices[].password"
+      ]
     }
   ]
 }

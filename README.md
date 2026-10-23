@@ -26,10 +26,15 @@ is carried over from that project.
 - The robot and Homebridge on the **same local network** (Matter also needs
   working IPv6/mDNS on that subnet).
 
-> **Model support.** Control is local via Tuya protocol `3.3`, the same as the
-> upstream plugin. Older RoboVac G/C‑series models work; some newer models (e.g.
-> the Eufy Clean **L60**) are **not** supported because their messages are
-> encrypted. No eufy cloud login is used.
+> **Two backends.** The plugin supports both:
+> - **Local (Tuya LAN)** — older/legacy RoboVacs (G/C‑series etc.). Direct local
+>   control with `deviceId` + `localKey`; no cloud, no internet needed.
+> - **Cloud (eufy account)** — newer "novel"‑protocol models such as the **Eufy
+>   Clean L60**, which don't speak the legacy local protocol. Logs in with your
+>   eufy email/password and controls the robot via the eufy/Tuya cloud (needs
+>   internet; a little more latency than local).
+>
+> The backend is chosen per device from its config (see below).
 
 ## Getting `deviceId` and `localKey`
 
@@ -40,34 +45,56 @@ optional but recommended.
 
 ## Configuration
 
-Add the platform via the Homebridge UI, or in `config.json`:
+Add the platform via the Homebridge UI, or in `config.json`. Each device uses
+either the **local** or the **cloud** backend.
+
+**Local backend** (older/legacy models):
 
 ```json
 {
-  "platforms": [
+  "platform": "EufyRobovacMatter",
+  "name": "Eufy RoboVac (Matter)",
+  "devices": [
     {
-      "platform": "EufyRobovacMatter",
-      "name": "Eufy RoboVac (Matter)",
-      "devices": [
-        {
-          "name": "Living Room RoboVac",
-          "deviceId": "xxxxxxxxxxxxxxxxxxxx",
-          "localKey": "xxxxxxxxxxxxxxxx",
-          "deviceIp": "192.168.1.50"
-        }
-      ]
+      "name": "Living Room RoboVac",
+      "backend": "local",
+      "deviceId": "xxxxxxxxxxxxxxxxxxxx",
+      "localKey": "xxxxxxxxxxxxxxxx",
+      "deviceIp": "192.168.1.50",
+      "protocolVersion": "3.3"
     }
   ]
 }
 ```
 
-| Field      | Required | Description                                             |
-| ---------- | -------- | ------------------------------------------------------- |
-| `name`     | yes      | Name shown for the robot in your Matter/Home app.       |
-| `deviceId` | yes      | Tuya device ID.                                         |
-| `localKey` | yes      | Tuya local key.                                         |
-| `deviceIp` | no       | Static IP of the robot (improves performance).          |
-| `protocolVersion` | no | Tuya LAN protocol version (`3.3` default, or `3.4` / `3.5` / `3.1`). |
+**Cloud backend** (novel models such as the L60):
+
+```json
+{
+  "platform": "EufyRobovacMatter",
+  "name": "Eufy RoboVac (Matter)",
+  "devices": [
+    {
+      "name": "L60",
+      "backend": "cloud",
+      "deviceId": "xxxxxxxxxxxxxxxxxxxx",
+      "email": "you@example.com",
+      "password": "your-eufy-password"
+    }
+  ]
+}
+```
+
+| Field      | Backend | Required | Description                                             |
+| ---------- | ------- | -------- | ------------------------------------------------------- |
+| `name`     | both    | yes      | Name shown for the robot in your Matter/Home app.       |
+| `backend`  | both    | no       | `auto` (default), `local`, or `cloud`. `auto` picks local when a `localKey` is set, otherwise cloud. |
+| `deviceId` | both    | yes      | Tuya/eufy device ID.                                    |
+| `localKey` | local   | yes\*    | Tuya local key (\*required for local).                  |
+| `deviceIp` | local   | no       | Static IP of the robot (improves local performance).    |
+| `protocolVersion` | local | no | Tuya LAN protocol version (`3.3` default, or `3.4` / `3.5` / `3.1`). |
+| `email`    | cloud   | yes\*    | Eufy account email (\*required for cloud).              |
+| `password` | cloud   | yes\*    | Eufy account password (\*required for cloud).           |
 
 ### Troubleshooting: connects but every command times out
 
@@ -116,9 +143,14 @@ npm run build
 
 ## Credits & license
 
-- Local Tuya control ported from
+- **Local Tuya control** ported from
   [@hov3rcraft/homebridge-eufy-robovac](https://github.com/hov3rcraft/homebridge-eufy-robovac)
   (itself a rewrite of the original by apexad).
-- Matter integration pattern follows Homebridge 2's `api.matter` plugin API.
+- **Cloud (novel) protocol** — the eufy/Tuya‑cloud login, the novel DPS map, the
+  protobuf command/state definitions and the error codes are a self‑contained
+  port of [martijnpoppen/eufy-clean](https://github.com/martijnpoppen/eufy-clean)
+  (MIT). This plugin reimplements the relevant pieces using Node's built‑in
+  `fetch`/`crypto` and `protobufjs` rather than depending on that library.
+- Matter integration follows Homebridge 2's `api.matter` plugin API.
 
 MIT

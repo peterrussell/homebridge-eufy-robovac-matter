@@ -1,69 +1,30 @@
 /**
  * Publishes a Eufy RoboVac as a native Matter Robotic Vacuum Cleaner using the
  * Homebridge 2.x `api.matter` API, and translates between the Matter RVC
- * clusters (RvcRunMode / RvcCleanMode / RvcOperationalState / PowerSource) and
- * the device's Tuya DPS state exposed by `RoboVac`.
+ * clusters and the backend-agnostic `VacuumState` / commands provided by a
+ * `VacuumBackend` (local Tuya or eufy cloud).
  */
 
 import type { API, Logging, MatterAccessory } from 'homebridge';
 
-import {
-    CleanSpeed,
-    ErrorCode,
-    RoboVac,
-    StatusDps,
-    WorkStatus,
-    getErrorCodeFriendlyName,
-    type RobovacStatus,
-} from './robovac-api';
-import {
-    CACHING_DURATION_MS,
-    LOW_BATTERY_THRESHOLD,
-    PLATFORM_NAME,
-    PLUGIN_NAME,
-    STATUS_POLL_INTERVAL_MS,
-    WARNING_BATTERY_THRESHOLD,
-} from './settings';
+import { CLEAN_SPEEDS, type VacuumBackend, type VacuumCleanSpeed, type VacuumState } from './backends/backend';
+import { PLATFORM_NAME, PLUGIN_NAME } from './settings';
 
-export interface EufyDeviceConfig {
+export interface MatterVacuumInfo {
     name: string;
-    deviceId: string;
-    localKey: string;
-    deviceIp?: string;
-    protocolVersion?: string;
+    serial: string;
+    model?: string;
 }
 
 // --- Matter RVC Run Mode -----------------------------------------------------
 const RUN_MODE_IDLE = 0;
 const RUN_MODE_CLEANING = 1;
-// Mode tags (Matter spec): Idle = 0x4000, Cleaning = 0x4001.
 const MODE_TAG_IDLE = 0x4000;
 const MODE_TAG_CLEANING = 0x4001;
 
-// --- Matter RVC Clean Mode ---------------------------------------------------
-// Mode tag: Vacuum = 0x4001.
+// --- Matter RVC Clean Mode (indices match CLEAN_SPEEDS order) ----------------
 const MODE_TAG_VACUUM = 0x4001;
-const CLEAN_MODE_STANDARD = 0;
-const CLEAN_MODE_TURBO = 1;
-const CLEAN_MODE_MAX = 2;
-
-const CLEAN_MODE_TO_SPEED: Record<number, CleanSpeed> = {
-    [CLEAN_MODE_STANDARD]: CleanSpeed.STANDARD,
-    [CLEAN_MODE_TURBO]: CleanSpeed.BOOST_IQ,
-    [CLEAN_MODE_MAX]: CleanSpeed.MAX,
-};
-
-function cleanSpeedToMode(speed: string): number {
-    switch (speed) {
-        case CleanSpeed.BOOST_IQ:
-            return CLEAN_MODE_TURBO;
-        case CleanSpeed.MAX:
-            return CLEAN_MODE_MAX;
-        default:
-            // Standard and No_suction both fall back to the Standard tile.
-            return CLEAN_MODE_STANDARD;
-    }
-}
+const CLEAN_MODE_LABELS = ['Quiet', 'Standard', 'Turbo', 'Max'];
 
 // --- Matter RVC Operational State -------------------------------------------
 const OP_STATE_STOPPED = 0;
@@ -74,183 +35,123 @@ const OP_STATE_SEEKING_CHARGER = 64;
 const OP_STATE_CHARGING = 65;
 const OP_STATE_DOCKED = 66;
 
-// --- Matter RVC Operational Error states ------------------------------------
-const ERR_NO_ERROR = 0;
-const ERR_UNABLE_TO_START = 1;
-const ERR_STUCK = 65;
-
 // --- Matter PowerSource BatChargeState --------------------------------------
 const BAT_CHARGE_IS_CHARGING = 1;
 const BAT_CHARGE_IS_AT_FULL = 2;
 const BAT_CHARGE_IS_NOT_CHARGING = 3;
 
-function isRealError(errorCode: string | undefined): boolean {
-    return errorCode !== undefined && errorCode !== ErrorCode.NO_ERROR && errorCode !== 'default - invalid';
-}
+// Generic RVC "Stuck" error state used to surface any device error to Matter.
+const ERR_STUCK = 65;
 
-function mapErrorStateId(errorCode: string): number {
-    switch (errorCode) {
-        case ErrorCode.NOT_ENOUGH_POWER:
-            return ERR_UNABLE_TO_START;
+function activityToMatter(activity: VacuumState['activity']): { operationalState: number; runMode: number } {
+    switch (activity) {
+        case 'cleaning':
+            return { operationalState: OP_STATE_RUNNING, runMode: RUN_MODE_CLEANING };
+        case 'paused':
+            return { operationalState: OP_STATE_PAUSED, runMode: RUN_MODE_CLEANING };
+        case 'returning':
+            return { operationalState: OP_STATE_SEEKING_CHARGER, runMode: RUN_MODE_IDLE };
+        case 'charging':
+            return { operationalState: OP_STATE_CHARGING, runMode: RUN_MODE_IDLE };
+        case 'docked':
+            return { operationalState: OP_STATE_DOCKED, runMode: RUN_MODE_IDLE };
+        case 'error':
+            return { operationalState: OP_STATE_ERROR, runMode: RUN_MODE_IDLE };
         default:
-            return ERR_STUCK;
+            return { operationalState: OP_STATE_STOPPED, runMode: RUN_MODE_IDLE };
     }
 }
 
-interface DerivedState {
-    operationalState: number;
-    operationalError: { errorStateId: number; errorStateLabel?: string };
-    runMode: number;
-}
-
-/** Translate the device's Tuya status into Matter run-mode + operational-state. */
-function deriveOperationalState(dps: RobovacStatus['dps']): DerivedState {
-    const errorCode = dps[StatusDps.ERROR_CODE];
-    if (isRealError(errorCode)) {
-        return {
-            operationalState: OP_STATE_ERROR,
-            operationalError: {
-                errorStateId: mapErrorStateId(errorCode),
-                errorStateLabel: getErrorCodeFriendlyName(errorCode),
-            },
-            runMode: RUN_MODE_IDLE,
-        };
-    }
-
-    const noError = { errorStateId: ERR_NO_ERROR };
-    const workStatus = dps[StatusDps.WORK_STATUS] as WorkStatus;
-    const goingHome = dps[StatusDps.GO_HOME] === true;
-
-    switch (workStatus) {
-        case WorkStatus.RUNNING:
-            return { operationalState: OP_STATE_RUNNING, operationalError: noError, runMode: RUN_MODE_CLEANING };
-        case WorkStatus.STAND_BY:
-        case WorkStatus.SLEEPING:
-            // Not docked and not moving: paused mid-session, unless it is on its way home.
-            return goingHome
-                ? { operationalState: OP_STATE_SEEKING_CHARGER, operationalError: noError, runMode: RUN_MODE_IDLE }
-                : { operationalState: OP_STATE_PAUSED, operationalError: noError, runMode: RUN_MODE_CLEANING };
-        case WorkStatus.RECHARGE_NEEDED:
-            return { operationalState: OP_STATE_SEEKING_CHARGER, operationalError: noError, runMode: RUN_MODE_IDLE };
-        case WorkStatus.CHARGING:
-            return { operationalState: OP_STATE_CHARGING, operationalError: noError, runMode: RUN_MODE_IDLE };
-        case WorkStatus.CHARGING_COMPLETED:
-            return { operationalState: OP_STATE_DOCKED, operationalError: noError, runMode: RUN_MODE_IDLE };
-        default:
-            if (goingHome) {
-                return { operationalState: OP_STATE_SEEKING_CHARGER, operationalError: noError, runMode: RUN_MODE_IDLE };
-            }
-            return dps[StatusDps.RUNNING]
-                ? { operationalState: OP_STATE_RUNNING, operationalError: noError, runMode: RUN_MODE_CLEANING }
-                : { operationalState: OP_STATE_STOPPED, operationalError: noError, runMode: RUN_MODE_IDLE };
-    }
-}
-
-function derivePowerSource(dps: RobovacStatus['dps']): Record<string, unknown> {
-    const level = dps[StatusDps.BATTERY_LEVEL];
-    const workStatus = dps[StatusDps.WORK_STATUS] as WorkStatus;
-
-    let batChargeState = BAT_CHARGE_IS_NOT_CHARGING;
-    if (workStatus === WorkStatus.CHARGING) {
-        batChargeState = BAT_CHARGE_IS_CHARGING;
-    } else if (workStatus === WorkStatus.CHARGING_COMPLETED) {
-        batChargeState = BAT_CHARGE_IS_AT_FULL;
-    }
-
-    const hasLevel = typeof level === 'number' && level >= 0;
-    const batChargeLevel = !hasLevel ? 0 : level <= LOW_BATTERY_THRESHOLD ? 2 : level <= WARNING_BATTERY_THRESHOLD ? 1 : 0;
-
+function powerSourceAttributes(state: VacuumState): Record<string, unknown> {
+    const hasLevel = state.batteryLevel >= 0;
+    const level = state.batteryLevel;
     return {
-        // Matter encodes battery percent as 0-200 (double the percentage).
-        batPercentRemaining: hasLevel ? level * 2 : null,
-        batChargeLevel,
-        batChargeState,
+        batPercentRemaining: hasLevel ? level * 2 : null, // Matter encodes 0-200 (double the percent)
+        batChargeLevel: !hasLevel ? 0 : level <= 10 ? 2 : level <= 20 ? 1 : 0,
+        batChargeState:
+            state.activity === 'docked' && hasLevel && level >= 100
+                ? BAT_CHARGE_IS_AT_FULL
+                : state.charging
+                    ? BAT_CHARGE_IS_CHARGING
+                    : BAT_CHARGE_IS_NOT_CHARGING,
     };
 }
 
-export async function registerEufyMatterVacuum(api: API, log: Logging, config: EufyDeviceConfig): Promise<string | undefined> {
+function cleanModeFromSpeed(speed: VacuumCleanSpeed | null): number {
+    const idx = speed ? CLEAN_SPEEDS.indexOf(speed) : -1;
+    return idx >= 0 ? idx : CLEAN_SPEEDS.indexOf('standard');
+}
+
+export async function registerEufyMatterVacuum(
+    api: API,
+    log: Logging,
+    info: MatterVacuumInfo,
+    backend: VacuumBackend,
+): Promise<string | undefined> {
     const matter = api.matter;
     if (!matter || !api.isMatterEnabled()) {
-        log.warn(`[${config.name}] Matter is not enabled on this bridge - skipping the native Matter vacuum. Enable Matter for this (child) bridge.`);
+        log.warn(`[${info.name}] Matter is not enabled on this bridge - skipping. Enable Matter for this (child) bridge.`);
         return undefined;
     }
 
-    const uuid = matter.uuid.generate(`${PLUGIN_NAME}:${config.deviceId}`);
+    const uuid = matter.uuid.generate(`${PLUGIN_NAME}:${info.serial}`);
 
-    // Created up front so it is in scope for the handlers; the data callback is
-    // wired below once pushState is defined.
-    let roboVac: RoboVac;
+    const pushState = (state: VacuumState): void => {
+        const { operationalState, runMode } = activityToMatter(state.activity);
+        const operationalError =
+            state.activity === 'error' ? { errorStateId: ERR_STUCK, errorStateLabel: state.error ?? 'Error' } : { errorStateId: 0 };
 
-    const pushState = (dps: RobovacStatus['dps']): void => {
-        const derived = deriveOperationalState(dps);
         const updates: Array<[string, Record<string, unknown>]> = [
-            ['rvcRunMode', { currentMode: derived.runMode }],
-            ['rvcOperationalState', { operationalState: derived.operationalState, operationalError: derived.operationalError }],
-            ['powerSource', derivePowerSource(dps)],
+            ['rvcRunMode', { currentMode: runMode }],
+            ['rvcOperationalState', { operationalState, operationalError }],
+            ['powerSource', powerSourceAttributes(state)],
+            ['rvcCleanMode', { currentMode: cleanModeFromSpeed(state.cleanSpeed) }],
         ];
-
-        const speed = dps[StatusDps.CLEAN_SPEED];
-        if (typeof speed === 'string' && speed !== '') {
-            updates.push(['rvcCleanMode', { currentMode: cleanSpeedToMode(speed) }]);
-        }
-
         for (const [cluster, attributes] of updates) {
             matter.updateAccessoryState(uuid, cluster, attributes).catch((error: unknown) => {
-                log.debug(`[${config.name}] Failed to update Matter cluster ${cluster}:`, error);
+                log.debug(`[${info.name}] failed to update Matter cluster ${cluster}:`, error);
             });
         }
     };
 
-    roboVac = new RoboVac(
-        { deviceId: config.deviceId, localKey: config.localKey, deviceIp: config.deviceIp, protocolVersion: config.protocolVersion },
-        (status: RobovacStatus) => pushState(status.dps),
-        CACHING_DURATION_MS,
-        log,
-    );
+    backend.onState(pushState);
 
-    // Run a command and report Matter-protocol failures back to the controller.
     const execute = async (description: string, command: () => Promise<void>): Promise<void> => {
         try {
-            log.info(`[${config.name}] ${description}`);
+            log.info(`[${info.name}] ${description}`);
             await command();
         } catch (error: unknown) {
             const message = error instanceof Error ? error.message : String(error);
-            log.error(`[${config.name}] ${description} failed: ${message}`);
+            log.error(`[${info.name}] ${description} failed: ${message}`);
             throw new matter.status.Failure(message);
         }
     };
 
-    const initial = deriveOperationalState(roboVac.lastStatus.dps);
-
     const accessory: MatterAccessory = {
         UUID: uuid,
-        displayName: config.name,
+        displayName: info.name,
         deviceType: matter.deviceTypes.RoboticVacuumCleaner,
-        serialNumber: config.deviceId,
+        serialNumber: info.serial,
         manufacturer: 'Eufy',
-        model: 'RoboVac',
-        context: { deviceId: config.deviceId },
+        model: info.model || 'RoboVac',
+        context: { serial: info.serial },
         clusters: {
             rvcRunMode: {
-                currentMode: initial.runMode,
+                currentMode: RUN_MODE_IDLE,
                 supportedModes: [
                     { label: 'Idle', mode: RUN_MODE_IDLE, modeTags: [{ value: MODE_TAG_IDLE }] },
                     { label: 'Cleaning', mode: RUN_MODE_CLEANING, modeTags: [{ value: MODE_TAG_CLEANING }] },
                 ],
             },
             rvcCleanMode: {
-                currentMode: CLEAN_MODE_STANDARD,
-                supportedModes: [
-                    { label: 'Standard', mode: CLEAN_MODE_STANDARD, modeTags: [{ value: MODE_TAG_VACUUM }] },
-                    { label: 'Turbo', mode: CLEAN_MODE_TURBO, modeTags: [{ value: MODE_TAG_VACUUM }] },
-                    { label: 'Max', mode: CLEAN_MODE_MAX, modeTags: [{ value: MODE_TAG_VACUUM }] },
-                ],
+                currentMode: CLEAN_SPEEDS.indexOf('standard'),
+                supportedModes: CLEAN_MODE_LABELS.map((label, mode) => ({ label, mode, modeTags: [{ value: MODE_TAG_VACUUM }] })),
             },
             rvcOperationalState: {
                 phaseList: null,
                 currentPhase: null,
-                operationalState: initial.operationalState,
-                operationalError: initial.operationalError,
+                operationalState: OP_STATE_DOCKED,
+                operationalError: { errorStateId: 0 },
                 operationalStateList: [
                     { operationalStateId: OP_STATE_STOPPED },
                     { operationalStateId: OP_STATE_RUNNING },
@@ -267,21 +168,22 @@ export async function registerEufyMatterVacuum(api: API, log: Logging, config: E
                 description: 'Battery',
                 batPresent: true,
                 batQuantity: 1,
-                ...derivePowerSource(roboVac.lastStatus.dps),
+                batPercentRemaining: null,
+                batChargeLevel: 0,
+                batChargeState: BAT_CHARGE_IS_NOT_CHARGING,
             },
         },
         handlers: {
             rvcRunMode: {
                 changeToMode: async (args: { newMode: number }) => {
                     if (args.newMode === RUN_MODE_CLEANING) {
-                        await execute('Start cleaning', () => roboVac.setPlayPause(true));
+                        await execute('Start cleaning', () => backend.startCleaning());
                         await matter.updateAccessoryState(uuid, 'rvcRunMode', { currentMode: RUN_MODE_CLEANING });
                         await matter.updateAccessoryState(uuid, 'rvcOperationalState', { operationalState: OP_STATE_RUNNING });
                         return;
                     }
                     if (args.newMode === RUN_MODE_IDLE) {
-                        // "Idle" from the Home app returns the robot to its dock (matches the original plugin's off behaviour).
-                        await execute('Return to dock', () => roboVac.setGoHome(true));
+                        await execute('Return to dock', () => backend.goHome());
                         await matter.updateAccessoryState(uuid, 'rvcRunMode', { currentMode: RUN_MODE_IDLE });
                         await matter.updateAccessoryState(uuid, 'rvcOperationalState', { operationalState: OP_STATE_SEEKING_CHARGER });
                         return;
@@ -291,26 +193,26 @@ export async function registerEufyMatterVacuum(api: API, log: Logging, config: E
             },
             rvcCleanMode: {
                 changeToMode: async (args: { newMode: number }) => {
-                    const speed = CLEAN_MODE_TO_SPEED[args.newMode];
-                    if (speed === undefined) {
+                    const speed = CLEAN_SPEEDS[args.newMode];
+                    if (!speed) {
                         throw new matter.status.ConstraintError(`Unsupported clean mode: ${args.newMode}`);
                     }
-                    await execute(`Set suction to ${speed}`, () => roboVac.setCleanSpeed(speed));
+                    await execute(`Set suction to ${speed}`, () => backend.setCleanSpeed(speed));
                     await matter.updateAccessoryState(uuid, 'rvcCleanMode', { currentMode: args.newMode });
                 },
             },
             rvcOperationalState: {
                 pause: async () => {
-                    await execute('Pause cleaning', () => roboVac.setPlayPause(false));
+                    await execute('Pause cleaning', () => backend.pause());
                     await matter.updateAccessoryState(uuid, 'rvcOperationalState', { operationalState: OP_STATE_PAUSED });
                 },
                 resume: async () => {
-                    await execute('Resume cleaning', () => roboVac.setPlayPause(true));
+                    await execute('Resume cleaning', () => backend.resume());
                     await matter.updateAccessoryState(uuid, 'rvcRunMode', { currentMode: RUN_MODE_CLEANING });
                     await matter.updateAccessoryState(uuid, 'rvcOperationalState', { operationalState: OP_STATE_RUNNING });
                 },
                 goHome: async () => {
-                    await execute('Return to dock', () => roboVac.setGoHome(true));
+                    await execute('Return to dock', () => backend.goHome());
                     await matter.updateAccessoryState(uuid, 'rvcRunMode', { currentMode: RUN_MODE_IDLE });
                     await matter.updateAccessoryState(uuid, 'rvcOperationalState', { operationalState: OP_STATE_SEEKING_CHARGER });
                 },
@@ -319,25 +221,15 @@ export async function registerEufyMatterVacuum(api: API, log: Logging, config: E
     };
 
     await matter.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
-    log.info(`[${config.name}] Published native Matter robot vacuum (serial ${config.deviceId}).`);
+    log.info(`[${info.name}] Published native Matter robot vacuum (serial ${info.serial}, backend: ${backend.kind}).`);
 
-    // Prime real state, then poll so Home stays in sync even without push events.
-    roboVac.getStatus().then((status) => pushState(status.dps)).catch((error: unknown) => {
-        log.debug(`[${config.name}] Initial status fetch failed:`, error);
+    await backend.start();
+    backend.refresh().then(pushState).catch((error: unknown) => {
+        log.debug(`[${info.name}] initial state fetch failed:`, error);
     });
 
-    const pollTimer = setInterval(() => {
-        roboVac.getStatus().then((status) => pushState(status.dps)).catch((error: unknown) => {
-            log.debug(`[${config.name}] Status poll failed:`, error);
-        });
-    }, STATUS_POLL_INTERVAL_MS);
-    pollTimer.unref();
-
     api.on('shutdown', () => {
-        clearInterval(pollTimer);
-        roboVac.disconnect().catch(() => {
-            // best-effort cleanup
-        });
+        backend.stop().catch(() => undefined);
     });
 
     return uuid;
