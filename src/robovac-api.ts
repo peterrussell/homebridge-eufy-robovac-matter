@@ -164,7 +164,7 @@ export class RoboVac {
     log: Logger;
 
     constructor(
-        config: { deviceId: string; localKey: string; deviceIp?: string },
+        config: { deviceId: string; localKey: string; deviceIp?: string; protocolVersion?: string },
         dataReceivedCallback: (status: RobovacStatus) => void,
         cachingDuration: number,
         log: Logger,
@@ -174,11 +174,14 @@ export class RoboVac {
 
         this.directConnect = config.deviceIp != null && config.deviceIp !== '';
 
+        const version = config.protocolVersion && config.protocolVersion !== '' ? config.protocolVersion : '3.3';
+        log.debug(`Using Tuya protocol version ${version} for device ${config.deviceId}`);
+
         this.api = new TuyAPI({
             id: config.deviceId,
             key: config.localKey,
             ip: this.directConnect ? config.deviceIp : undefined,
-            version: '3.3',
+            version,
             issueRefreshOnConnect: true,
         });
 

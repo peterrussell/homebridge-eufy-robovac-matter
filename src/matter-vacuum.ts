@@ -30,6 +30,7 @@ export interface EufyDeviceConfig {
     deviceId: string;
     localKey: string;
     deviceIp?: string;
+    protocolVersion?: string;
 }
 
 // --- Matter RVC Run Mode -----------------------------------------------------
@@ -201,7 +202,7 @@ export async function registerEufyMatterVacuum(api: API, log: Logging, config: E
     };
 
     roboVac = new RoboVac(
-        { deviceId: config.deviceId, localKey: config.localKey, deviceIp: config.deviceIp },
+        { deviceId: config.deviceId, localKey: config.localKey, deviceIp: config.deviceIp, protocolVersion: config.protocolVersion },
         (status: RobovacStatus) => pushState(status.dps),
         CACHING_DURATION_MS,
         log,

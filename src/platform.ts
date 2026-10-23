@@ -72,13 +72,14 @@ export class EufyRobovacMatterPlatform implements DynamicPlatformPlugin {
             const localKey = typeof entry.localKey === 'string' ? entry.localKey.trim() : '';
             const name = typeof entry.name === 'string' && entry.name.trim() !== '' ? entry.name.trim() : 'Eufy RoboVac';
             const deviceIp = typeof entry.deviceIp === 'string' && entry.deviceIp.trim() !== '' ? entry.deviceIp.trim() : undefined;
+            const protocolVersion = typeof entry.protocolVersion === 'string' && entry.protocolVersion.trim() !== '' ? entry.protocolVersion.trim() : undefined;
 
             if (!deviceId || !localKey) {
                 this.log.warn(`Skipping device "${name}": both deviceId and localKey are required.`);
                 continue;
             }
 
-            devices.push({ name, deviceId, localKey, deviceIp });
+            devices.push({ name, deviceId, localKey, deviceIp, protocolVersion });
         }
 
         return devices;

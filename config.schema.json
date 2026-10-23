@@ -45,6 +45,19 @@
               "format": "ipv4",
               "required": false,
               "description": "Static IP of the robot. Optional, but setting it improves performance and reliability."
+            },
+            "protocolVersion": {
+              "title": "Tuya protocol version",
+              "type": "string",
+              "default": "3.3",
+              "required": false,
+              "oneOf": [
+                { "title": "3.3 (most models)", "enum": ["3.3"] },
+                { "title": "3.4 (many 2023+ models)", "enum": ["3.4"] },
+                { "title": "3.5 (newest models)", "enum": ["3.5"] },
+                { "title": "3.1 (older models)", "enum": ["3.1"] }
+              ],
+              "description": "Tuya LAN protocol version. If the robot connects but every command times out, try 3.4, then 3.5."
             }
           }
         }

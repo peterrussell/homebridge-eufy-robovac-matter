@@ -67,6 +67,19 @@ Add the platform via the Homebridge UI, or in `config.json`:
 | `deviceId` | yes      | Tuya device ID.                                         |
 | `localKey` | yes      | Tuya local key.                                         |
 | `deviceIp` | no       | Static IP of the robot (improves performance).          |
+| `protocolVersion` | no | Tuya LAN protocol version (`3.3` default, or `3.4` / `3.5` / `3.1`). |
+
+### Troubleshooting: connects but every command times out
+
+If the log shows `Connected to device!` but then `Timeout waiting for status response`,
+the TCP connection is fine but the robot can't decode the requests — almost always a
+**protocol version** or **localKey** mismatch:
+
+1. Set `protocolVersion` to **`3.4`**, restart, and test. If still timing out, try **`3.5`**.
+2. If no version works, your **`localKey` is likely stale** (it rotates whenever the robot is
+   re-added in the eufy app). Re-grab it with the key grabber and update the config.
+3. Make sure nothing else holds the single local connection — close the eufy app and stop any
+   other local Tuya integration polling the robot.
 
 ## Matter setup
 
