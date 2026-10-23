@@ -1,0 +1,64 @@
+{
+  "pluginAlias": "EufyRobovacMatter",
+  "pluginType": "platform",
+  "singular": true,
+  "headerDisplay": "Exposes Eufy RoboVac robots as **native Matter Robotic Vacuum Cleaner** devices through Homebridge 2's Matter support. Requires Homebridge 2.0+ with Matter enabled on this (child) bridge, and a Matter controller (Apple Home needs iOS 18.4+).",
+  "footerDisplay": "You need each robot's **deviceId** and **localKey**. See the README for how to obtain them with the eufy-clean-local-key-grabber. Control is local (Tuya LAN); the robot must be on the same network as Homebridge.",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Platform Name",
+        "type": "string",
+        "default": "Eufy RoboVac (Matter)",
+        "required": true,
+        "description": "Name shown for this platform in the Homebridge logs."
+      },
+      "devices": {
+        "title": "RoboVacs",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "title": "Name",
+              "type": "string",
+              "default": "Eufy RoboVac",
+              "required": true,
+              "description": "Name for this robot (shown in your Matter/Home app)."
+            },
+            "deviceId": {
+              "title": "Device ID",
+              "type": "string",
+              "required": true,
+              "description": "The robot's Tuya device ID."
+            },
+            "localKey": {
+              "title": "Local Key",
+              "type": "string",
+              "required": true,
+              "description": "The robot's Tuya local key."
+            },
+            "deviceIp": {
+              "title": "Device IP (optional)",
+              "type": "string",
+              "format": "ipv4",
+              "required": false,
+              "description": "Static IP of the robot. Optional, but setting it improves performance and reliability."
+            }
+          }
+        }
+      }
+    }
+  },
+  "layout": [
+    "name",
+    {
+      "key": "devices",
+      "type": "array",
+      "title": "RoboVacs",
+      "buttonText": "Add RoboVac",
+      "items": ["devices[].name", "devices[].deviceId", "devices[].localKey", "devices[].deviceIp"]
+    }
+  ]
+}

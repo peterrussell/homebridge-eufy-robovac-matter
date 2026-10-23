@@ -1,0 +1,43 @@
+{
+  "name": "homebridge-eufy-robovac-matter",
+  "displayName": "Homebridge Eufy RoboVac (Matter)",
+  "version": "1.0.0",
+  "description": "Homebridge 2.x plugin that exposes a Eufy RoboVac as a native Matter Robotic Vacuum Cleaner, controlled locally over TuyAPI.",
+  "main": "dist/index.js",
+  "files": [
+    "dist",
+    "config.schema.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20.0.0",
+    "homebridge": ">=2.0.0"
+  },
+  "scripts": {
+    "build": "rimraf ./dist && tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "homebridge-plugin",
+    "supports-matter",
+    "matter",
+    "eufy",
+    "robovac",
+    "vacuum",
+    "robot",
+    "robot-vacuum",
+    "tuya"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "tuyapi": "^7.5.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "homebridge": "^2.4.0",
+    "rimraf": "^5.0.5",
+    "typescript": "^5.6.0"
+  }
+}
