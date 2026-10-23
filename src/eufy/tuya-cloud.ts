@@ -45,8 +45,9 @@ function b64url(buf: Buffer): string {
     return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-function intToBuffer(n: number): Buffer {
-    let hex = n.toString(16);
+/** Big-endian byte buffer for a non-negative BigInteger. */
+function bigToBuffer(value: bigint): Buffer {
+    let hex = value.toString(16);
     if (hex.length % 2) {
         hex = '0' + hex;
     }
@@ -203,9 +204,10 @@ export class TuyaCloud {
         this.sid = result.sid;
     }
 
-    private rsaNoPadEncrypt(dataStr: string, modulusHex: string, exponent: string | number): string {
-        const n = Buffer.from(modulusHex, 'hex');
-        const e = intToBuffer(Number(exponent));
+    private rsaNoPadEncrypt(dataStr: string, modulus: string, exponent: string | number): string {
+        // Tuya returns the modulus and exponent as decimal (base-10) strings.
+        const n = bigToBuffer(BigInt(modulus));
+        const e = bigToBuffer(BigInt(exponent));
         const keyObj = crypto.createPublicKey({ key: { kty: 'RSA', n: b64url(n), e: b64url(e) }, format: 'jwk' } as crypto.JsonWebKeyInput);
         const data = Buffer.from(dataStr, 'utf8');
         const padded = Buffer.concat([Buffer.alloc(Math.max(0, n.length - data.length)), data]);
