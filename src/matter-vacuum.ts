@@ -7,7 +7,7 @@
 
 import type { API, Logging, MatterAccessory } from 'homebridge';
 
-import { CLEAN_SPEEDS, type VacuumBackend, type VacuumCleanSpeed, type VacuumState } from './backends/backend';
+import { type VacuumBackend, type VacuumState } from './backends/backend';
 import { PLATFORM_NAME, PLUGIN_NAME } from './settings';
 
 export interface MatterVacuumInfo {
@@ -21,10 +21,6 @@ const RUN_MODE_IDLE = 0;
 const RUN_MODE_CLEANING = 1;
 const MODE_TAG_IDLE = 0x4000;
 const MODE_TAG_CLEANING = 0x4001;
-
-// --- Matter RVC Clean Mode (indices match CLEAN_SPEEDS order) ----------------
-const MODE_TAG_VACUUM = 0x4001;
-const CLEAN_MODE_LABELS = ['Quiet', 'Standard', 'Turbo', 'Max'];
 
 // --- Matter RVC Operational State -------------------------------------------
 const OP_STATE_STOPPED = 0;
@@ -77,11 +73,6 @@ function powerSourceAttributes(state: VacuumState): Record<string, unknown> {
     };
 }
 
-function cleanModeFromSpeed(speed: VacuumCleanSpeed | null): number {
-    const idx = speed ? CLEAN_SPEEDS.indexOf(speed) : -1;
-    return idx >= 0 ? idx : CLEAN_SPEEDS.indexOf('standard');
-}
-
 export async function registerEufyMatterVacuum(
     api: API,
     log: Logging,
@@ -105,8 +96,10 @@ export async function registerEufyMatterVacuum(
             ['rvcRunMode', { currentMode: runMode }],
             ['rvcOperationalState', { operationalState, operationalError }],
             ['powerSource', powerSourceAttributes(state)],
-            ['rvcCleanMode', { currentMode: cleanModeFromSpeed(state.cleanSpeed) }],
         ];
+        if (state.cleanMode != null) {
+            updates.push(['rvcCleanMode', { currentMode: state.cleanMode }]);
+        }
         for (const [cluster, attributes] of updates) {
             matter.updateAccessoryState(uuid, cluster, attributes).catch((error: unknown) => {
                 log.debug(`[${info.name}] failed to update Matter cluster ${cluster}:`, error);
@@ -144,8 +137,8 @@ export async function registerEufyMatterVacuum(
                 ],
             },
             rvcCleanMode: {
-                currentMode: CLEAN_SPEEDS.indexOf('standard'),
-                supportedModes: CLEAN_MODE_LABELS.map((label, mode) => ({ label, mode, modeTags: [{ value: MODE_TAG_VACUUM }] })),
+                currentMode: 0,
+                supportedModes: backend.cleanModes.map((m, mode) => ({ label: m.label, mode, modeTags: m.tags.map((value) => ({ value })) })),
             },
             rvcOperationalState: {
                 phaseList: null,
@@ -193,12 +186,21 @@ export async function registerEufyMatterVacuum(
             },
             rvcCleanMode: {
                 changeToMode: async (args: { newMode: number }) => {
-                    const speed = CLEAN_SPEEDS[args.newMode];
-                    if (!speed) {
+                    const mode = backend.cleanModes[args.newMode];
+                    if (!mode) {
                         throw new matter.status.ConstraintError(`Unsupported clean mode: ${args.newMode}`);
                     }
-                    await execute(`Set suction to ${speed}`, () => backend.setCleanSpeed(speed));
+                    await execute(`Set clean mode to ${mode.label}`, () => backend.setCleanMode(args.newMode));
                     await matter.updateAccessoryState(uuid, 'rvcCleanMode', { currentMode: args.newMode });
+                },
+            },
+            identify: {
+                // Only acts when the backend supports locating the robot; otherwise a no-op.
+                identify: async () => {
+                    if (!backend.findRobot) {
+                        return;
+                    }
+                    await execute('Locate robot', () => backend.findRobot!());
                 },
             },
             rvcOperationalState: {

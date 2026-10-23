@@ -78,6 +78,12 @@
               "type": "string",
               "description": "Your eufy account password. Required for the Cloud backend.",
               "x-schema-form": { "type": "password" }
+            },
+            "mop": {
+              "title": "Mop-capable model (cloud backend)",
+              "type": "boolean",
+              "default": false,
+              "description": "Enable for Hybrid models (e.g. L60 Hybrid). Exposes Vacuum / Mop / Vacuum & Mop clean modes instead of suction levels. Note: Apple Home doesn't display clean modes, but other Matter controllers do."
             }
           }
         }
@@ -99,7 +105,8 @@
         "devices[].deviceIp",
         "devices[].protocolVersion",
         "devices[].email",
-        "devices[].password"
+        "devices[].password",
+        "devices[].mop"
       ]
     }
   ]

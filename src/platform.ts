@@ -87,6 +87,7 @@ export class EufyRobovacMatterPlatform implements DynamicPlatformPlugin {
             const protocolVersion = typeof entry.protocolVersion === 'string' && entry.protocolVersion.trim() !== '' ? entry.protocolVersion.trim() : undefined;
             const email = typeof entry.email === 'string' ? entry.email.trim() : '';
             const password = typeof entry.password === 'string' ? entry.password : '';
+            const mop = entry.mop === true;
             const requestedBackend = typeof entry.backend === 'string' ? entry.backend.trim().toLowerCase() : 'auto';
 
             // Decide backend: explicit `backend`, else infer from the fields present.
@@ -101,7 +102,7 @@ export class EufyRobovacMatterPlatform implements DynamicPlatformPlugin {
                 devices.push({
                     name,
                     serial: deviceId,
-                    backend: new EufyCloudBackend({ name, email, password, deviceId }, this.log),
+                    backend: new EufyCloudBackend({ name, email, password, deviceId, mop }, this.log),
                 });
                 continue;
             }

@@ -9,36 +9,47 @@ import type { Logger } from '../robovac-api';
 import { STATUS_POLL_INTERVAL_MS } from '../settings';
 import { CONTROL_METHOD, NOVEL_CLEAN_SPEEDS, NOVEL_DPS, friendlyError } from '../eufy/constants';
 import { EufyCloudSession } from '../eufy/eufy-login';
-import { decodeErrorCode, decodeWorkStatus, encodeModeCtrl } from '../eufy/protos';
-import type { VacuumBackend, VacuumCleanSpeed, VacuumState } from './backend';
+import { CLEAN_TYPE, MOP_LEVEL_HIGH, decodeCleanType, decodeErrorCode, decodeWorkStatus, encodeCleanParam, encodeModeCtrl } from '../eufy/protos';
+import { CLEAN_MODE_TAG_MOP, CLEAN_MODE_TAG_VACUUM, type CleanModeOption, type VacuumBackend, type VacuumState } from './backend';
 
 export interface EufyCloudConfig {
     name: string;
     email: string;
     password: string;
     deviceId: string;
+    /** Mop-capable model (e.g. L60 Hybrid): expose Vacuum/Mop/Vacuum & Mop clean modes. */
+    mop?: boolean;
 }
 
-function normalizeSpeed(val: unknown): VacuumCleanSpeed | null {
+// Suction clean modes (vacuum-only), index-aligned with NOVEL_CLEAN_SPEEDS.
+const SUCTION_MODES: CleanModeOption[] = ['Quiet', 'Standard', 'Turbo', 'Max'].map((label) => ({ label, tags: [CLEAN_MODE_TAG_VACUUM] }));
+// Cleaning-type modes (mop-capable), index 0/1/2.
+const MOP_MODES: CleanModeOption[] = [
+    { label: 'Vacuum', tags: [CLEAN_MODE_TAG_VACUUM] },
+    { label: 'Mop', tags: [CLEAN_MODE_TAG_MOP] },
+    { label: 'Vacuum & Mop', tags: [CLEAN_MODE_TAG_VACUUM, CLEAN_MODE_TAG_MOP] },
+];
+const MODE_INDEX_TO_CLEAN_TYPE = [CLEAN_TYPE.SWEEP_ONLY, CLEAN_TYPE.MOP_ONLY, CLEAN_TYPE.SWEEP_AND_MOP];
+
+function suctionIndex(val: unknown): number | null {
     if (val === null || val === undefined) {
         return null;
     }
     if (typeof val === 'number' || (typeof val === 'string' && /^\d+$/.test(val))) {
-        const name = NOVEL_CLEAN_SPEEDS[parseInt(String(val), 10)];
-        return name ? (name.toLowerCase() as VacuumCleanSpeed) : null;
+        const i = parseInt(String(val), 10);
+        return i >= 0 && i < NOVEL_CLEAN_SPEEDS.length ? i : null;
     }
-    const lower = String(val).toLowerCase();
+    let lower = String(val).toLowerCase();
     if (lower === 'max_plus') {
-        return 'max';
+        lower = 'max';
     }
-    if (lower === 'quiet' || lower === 'standard' || lower === 'turbo' || lower === 'max') {
-        return lower;
-    }
-    return null;
+    const idx = NOVEL_CLEAN_SPEEDS.findIndex((s) => s.toLowerCase() === lower);
+    return idx >= 0 ? idx : null;
 }
 
 export class EufyCloudBackend implements VacuumBackend {
     readonly kind = 'cloud (eufy)';
+    readonly cleanModes: CleanModeOption[];
 
     private readonly session: EufyCloudSession;
     private readonly listeners: Array<(state: VacuumState) => void> = [];
@@ -46,6 +57,7 @@ export class EufyCloudBackend implements VacuumBackend {
 
     constructor(private readonly config: EufyCloudConfig, private readonly log: Logger) {
         this.session = new EufyCloudSession(config.email, config.password, log);
+        this.cleanModes = config.mop ? MOP_MODES : SUCTION_MODES;
     }
 
     async start(): Promise<void> {
@@ -126,8 +138,34 @@ export class EufyCloudBackend implements VacuumBackend {
             batteryLevel: Number.isFinite(batteryLevel) && batteryLevel >= 0 ? batteryLevel : -1,
             charging: activity === 'charging' || activity === 'docked',
             error,
-            cleanSpeed: normalizeSpeed(dps[NOVEL_DPS.CLEAN_SPEED]),
+            cleanMode: this.currentCleanMode(dps),
         };
+    }
+
+    private currentCleanMode(dps: Record<string, unknown>): number | null {
+        if (this.config.mop) {
+            const raw = dps[NOVEL_DPS.CLEANING_PARAMETERS];
+            if (typeof raw !== 'string' || !raw) {
+                return null;
+            }
+            try {
+                switch (decodeCleanType(raw)) {
+                    case 'SWEEP_ONLY':
+                        return 0;
+                    case 'MOP_ONLY':
+                        return 1;
+                    case 'SWEEP_AND_MOP':
+                    case 'SWEEP_THEN_MOP':
+                        return 2;
+                    default:
+                        return null;
+                }
+            } catch (e) {
+                this.log.debug(`[${this.config.name}] could not decode clean params:`, e);
+                return null;
+            }
+        }
+        return suctionIndex(dps[NOVEL_DPS.CLEAN_SPEED]);
     }
 
     private stateToActivity(
@@ -181,11 +219,24 @@ export class EufyCloudBackend implements VacuumBackend {
         await this.send({ [NOVEL_DPS.PLAY_PAUSE]: encodeModeCtrl(CONTROL_METHOD.START_GOHOME) });
     }
 
-    async setCleanSpeed(speed: VacuumCleanSpeed): Promise<void> {
-        const index = NOVEL_CLEAN_SPEEDS.findIndex((s) => s.toLowerCase() === speed);
-        if (index < 0) {
+    async setCleanMode(index: number): Promise<void> {
+        if (this.config.mop) {
+            const cleanType = MODE_INDEX_TO_CLEAN_TYPE[index];
+            if (cleanType === undefined) {
+                return;
+            }
+            const mopLevel = cleanType === CLEAN_TYPE.SWEEP_ONLY ? undefined : MOP_LEVEL_HIGH;
+            await this.send({ [NOVEL_DPS.CLEANING_PARAMETERS]: encodeCleanParam(cleanType, mopLevel) });
+            return;
+        }
+        if (index < 0 || index >= NOVEL_CLEAN_SPEEDS.length) {
             return;
         }
         await this.send({ [NOVEL_DPS.CLEAN_SPEED]: index });
+    }
+
+    async findRobot(): Promise<void> {
+        // Best effort: toggling the find-robot DP makes the robot chirp to locate it.
+        await this.send({ [NOVEL_DPS.FIND_ROBOT]: true });
     }
 }

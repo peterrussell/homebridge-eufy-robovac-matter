@@ -15,7 +15,7 @@ import {
     type RobovacStatus,
 } from '../robovac-api';
 import { CACHING_DURATION_MS, STATUS_POLL_INTERVAL_MS } from '../settings';
-import type { VacuumBackend, VacuumCleanSpeed, VacuumState } from './backend';
+import { CLEAN_MODE_TAG_VACUUM, type CleanModeOption, type VacuumBackend, type VacuumState } from './backend';
 
 export interface TuyaLocalConfig {
     name: string;
@@ -25,26 +25,13 @@ export interface TuyaLocalConfig {
     protocolVersion?: string;
 }
 
-const SPEED_TO_CLEAN_SPEED: Record<VacuumCleanSpeed, CleanSpeed> = {
-    quiet: CleanSpeed.NO_SUCTION,
-    standard: CleanSpeed.STANDARD,
-    turbo: CleanSpeed.BOOST_IQ,
-    max: CleanSpeed.MAX,
-};
+// Clean modes for legacy devices are suction levels (all tagged Vacuum).
+const LOCAL_SPEEDS: CleanSpeed[] = [CleanSpeed.NO_SUCTION, CleanSpeed.STANDARD, CleanSpeed.BOOST_IQ, CleanSpeed.MAX];
+const LOCAL_SPEED_LABELS = ['Quiet', 'Standard', 'Turbo', 'Max'];
 
-function cleanSpeedFromDevice(speed: string | undefined): VacuumCleanSpeed | null {
-    switch (speed) {
-        case CleanSpeed.NO_SUCTION:
-            return 'quiet';
-        case CleanSpeed.STANDARD:
-            return 'standard';
-        case CleanSpeed.BOOST_IQ:
-            return 'turbo';
-        case CleanSpeed.MAX:
-            return 'max';
-        default:
-            return null;
-    }
+function cleanModeFromDevice(speed: string | undefined): number | null {
+    const idx = LOCAL_SPEEDS.indexOf(speed as CleanSpeed);
+    return idx >= 0 ? idx : null;
 }
 
 function isRealError(errorCode: string | undefined): boolean {
@@ -53,6 +40,7 @@ function isRealError(errorCode: string | undefined): boolean {
 
 export class TuyaLocalBackend implements VacuumBackend {
     readonly kind = 'local (Tuya LAN)';
+    readonly cleanModes: CleanModeOption[] = LOCAL_SPEED_LABELS.map((label) => ({ label, tags: [CLEAN_MODE_TAG_VACUUM] }));
 
     private readonly roboVac: RoboVac;
     private readonly listeners: Array<(state: VacuumState) => void> = [];
@@ -138,7 +126,7 @@ export class TuyaLocalBackend implements VacuumBackend {
             batteryLevel: typeof level === 'number' && level >= 0 ? level : -1,
             charging: workStatus === WorkStatus.CHARGING || workStatus === WorkStatus.CHARGING_COMPLETED,
             error,
-            cleanSpeed: cleanSpeedFromDevice(dps[StatusDps.CLEAN_SPEED]),
+            cleanMode: cleanModeFromDevice(dps[StatusDps.CLEAN_SPEED]),
         };
     }
 
@@ -158,7 +146,14 @@ export class TuyaLocalBackend implements VacuumBackend {
         await this.roboVac.setGoHome(true);
     }
 
-    async setCleanSpeed(speed: VacuumCleanSpeed): Promise<void> {
-        await this.roboVac.setCleanSpeed(SPEED_TO_CLEAN_SPEED[speed]);
+    async setCleanMode(index: number): Promise<void> {
+        const speed = LOCAL_SPEEDS[index];
+        if (speed) {
+            await this.roboVac.setCleanSpeed(speed);
+        }
+    }
+
+    async findRobot(): Promise<void> {
+        await this.roboVac.setFindRobot(true);
     }
 }

@@ -56,16 +56,44 @@ package proto.cloud;
 message ErrorCode { repeated uint32 error = 2; repeated uint32 warn = 3; }
 `;
 
+// Clean parameters (dp 154): cleaning type (sweep/mop/both) + mop level + suction.
+// Field numbers match the upstream clean_param.proto; omitted fields are skipped.
+const CLEAN_PARAM_PROTO = `
+syntax = "proto3";
+package proto.cloud;
+message Fan { enum Suction { QUIET = 0; STANDARD = 1; TURBO = 2; MAX = 3; MAX_PLUS = 4; } Suction suction = 1; }
+message MopMode { enum Level { LOW = 0; MIDDLE = 1; HIGH = 2; } Level level = 1; }
+message CleanType { enum Value { SWEEP_ONLY = 0; MOP_ONLY = 1; SWEEP_AND_MOP = 2; SWEEP_THEN_MOP = 3; } Value value = 1; }
+message CleanExtent { enum Value { NORMAL = 0; NARROW = 1; QUICK = 2; } Value value = 1; }
+message CleanParam {
+  CleanType clean_type = 1;
+  CleanExtent clean_extent = 3;
+  MopMode mop_mode = 4;
+  Fan fan = 6;
+  uint32 clean_times = 7;
+}
+message CleanParamRequest { CleanParam clean_param = 1; CleanParam area_clean_param = 2; }
+message CleanParamResponse { CleanParam clean_param = 1; CleanParam area_clean_param = 3; CleanParam running_clean_param = 4; }
+`;
+
 const root = new protobuf.Root();
 protobuf.parse(CONTROL_PROTO, root, { keepCase: true });
 protobuf.parse(WORK_STATUS_PROTO, root, { keepCase: true });
 protobuf.parse(ERROR_CODE_PROTO, root, { keepCase: true });
+protobuf.parse(CLEAN_PARAM_PROTO, root, { keepCase: true });
 
 const ModeCtrlRequest = root.lookupType('proto.cloud.ModeCtrlRequest');
 const WorkStatus = root.lookupType('proto.cloud.WorkStatus');
 const ErrorCodeMsg = root.lookupType('proto.cloud.ErrorCode');
+const CleanParamRequest = root.lookupType('proto.cloud.CleanParamRequest');
+const CleanParamResponse = root.lookupType('proto.cloud.CleanParamResponse');
 
 const toObjectOpts = { longs: String, enums: String, bytes: String } as const;
+
+/** CleanType enum values (matches the proto). */
+export const CLEAN_TYPE = { SWEEP_ONLY: 0, MOP_ONLY: 1, SWEEP_AND_MOP: 2, SWEEP_THEN_MOP: 3 } as const;
+/** MopMode.Level HIGH, used when enabling mopping. */
+export const MOP_LEVEL_HIGH = 2;
 
 /** Encode a ModeCtrlRequest to a base64 (delimited) string for dp 152. */
 export function encodeModeCtrl(method: number, autoCleanTimes?: number): string {
@@ -96,6 +124,26 @@ export function decodeWorkStatus(base64Value: string): DecodedWorkStatus {
         chargingDone: decoded.charging?.state === 'DONE',
         cleaningPaused: decoded.cleaning?.state === 'PAUSED',
     };
+}
+
+/** Encode a CleanParamRequest for dp 154 (set cleaning type, optionally mop level). */
+export function encodeCleanParam(cleanType: number, mopLevel?: number): string {
+    const cleanParam: Record<string, unknown> = { clean_type: { value: cleanType } };
+    if (mopLevel !== undefined) {
+        cleanParam.mop_mode = { level: mopLevel };
+    }
+    const message = CleanParamRequest.create({ clean_param: cleanParam });
+    return Buffer.from(CleanParamRequest.encodeDelimited(message).finish()).toString('base64');
+}
+
+/** Decode dp 154 and return the current CleanType enum name (e.g. "SWEEP_AND_MOP"), or undefined. */
+export function decodeCleanType(base64Value: string): string | undefined {
+    const buffer = Buffer.from(base64Value, 'base64');
+    const decoded = CleanParamResponse.toObject(CleanParamResponse.decodeDelimited(buffer), {
+        ...toObjectOpts,
+        defaults: true,
+    }) as { clean_param?: { clean_type?: { value?: string } } };
+    return decoded.clean_param?.clean_type?.value;
 }
 
 /** Decode dp 177 and return the first active warn/error code (0 if none). */
