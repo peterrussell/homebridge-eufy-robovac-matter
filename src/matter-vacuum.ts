@@ -109,7 +109,19 @@ export async function registerEufyMatterVacuum(
 
     backend.onState(pushState);
 
-    const execute = async (description: string, command: () => Promise<void>): Promise<void> => {
+    // Leading-edge per-action throttle: if the same command is triggered more
+    // than once within this window (e.g. a double-tapped "locate"), only the
+    // first reaches the device; the rest are ignored.
+    const COMMAND_THROTTLE_MS = 1000;
+    const lastCommandAt = new Map<string, number>();
+
+    const execute = async (key: string, description: string, command: () => Promise<void>): Promise<void> => {
+        const now = Date.now();
+        if (now - (lastCommandAt.get(key) ?? 0) < COMMAND_THROTTLE_MS) {
+            log.debug(`[${info.name}] ${description} ignored (repeated within ${COMMAND_THROTTLE_MS}ms)`);
+            return;
+        }
+        lastCommandAt.set(key, now);
         try {
             log.info(`[${info.name}] ${description}`);
             await command();
@@ -170,13 +182,13 @@ export async function registerEufyMatterVacuum(
             rvcRunMode: {
                 changeToMode: async (args: { newMode: number }) => {
                     if (args.newMode === RUN_MODE_CLEANING) {
-                        await execute('Start cleaning', () => backend.startCleaning());
+                        await execute('run:clean', 'Start cleaning', () => backend.startCleaning());
                         await matter.updateAccessoryState(uuid, 'rvcRunMode', { currentMode: RUN_MODE_CLEANING });
                         await matter.updateAccessoryState(uuid, 'rvcOperationalState', { operationalState: OP_STATE_RUNNING });
                         return;
                     }
                     if (args.newMode === RUN_MODE_IDLE) {
-                        await execute('Return to dock', () => backend.goHome());
+                        await execute('gohome', 'Return to dock', () => backend.goHome());
                         await matter.updateAccessoryState(uuid, 'rvcRunMode', { currentMode: RUN_MODE_IDLE });
                         await matter.updateAccessoryState(uuid, 'rvcOperationalState', { operationalState: OP_STATE_SEEKING_CHARGER });
                         return;
@@ -190,7 +202,7 @@ export async function registerEufyMatterVacuum(
                     if (!mode) {
                         throw new matter.status.ConstraintError(`Unsupported clean mode: ${args.newMode}`);
                     }
-                    await execute(`Set clean mode to ${mode.label}`, () => backend.setCleanMode(args.newMode));
+                    await execute(`clean:${args.newMode}`, `Set clean mode to ${mode.label}`, () => backend.setCleanMode(args.newMode));
                     await matter.updateAccessoryState(uuid, 'rvcCleanMode', { currentMode: args.newMode });
                 },
             },
@@ -200,21 +212,21 @@ export async function registerEufyMatterVacuum(
                     if (!backend.findRobot) {
                         return;
                     }
-                    await execute('Locate robot', () => backend.findRobot!());
+                    await execute('identify', 'Locate robot', () => backend.findRobot!());
                 },
             },
             rvcOperationalState: {
                 pause: async () => {
-                    await execute('Pause cleaning', () => backend.pause());
+                    await execute('pause', 'Pause cleaning', () => backend.pause());
                     await matter.updateAccessoryState(uuid, 'rvcOperationalState', { operationalState: OP_STATE_PAUSED });
                 },
                 resume: async () => {
-                    await execute('Resume cleaning', () => backend.resume());
+                    await execute('resume', 'Resume cleaning', () => backend.resume());
                     await matter.updateAccessoryState(uuid, 'rvcRunMode', { currentMode: RUN_MODE_CLEANING });
                     await matter.updateAccessoryState(uuid, 'rvcOperationalState', { operationalState: OP_STATE_RUNNING });
                 },
                 goHome: async () => {
-                    await execute('Return to dock', () => backend.goHome());
+                    await execute('gohome', 'Return to dock', () => backend.goHome());
                     await matter.updateAccessoryState(uuid, 'rvcRunMode', { currentMode: RUN_MODE_IDLE });
                     await matter.updateAccessoryState(uuid, 'rvcOperationalState', { operationalState: OP_STATE_SEEKING_CHARGER });
                 },
