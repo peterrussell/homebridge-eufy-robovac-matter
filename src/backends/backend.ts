@@ -39,6 +39,19 @@ export interface CleanModeOption {
     tags: number[];
 }
 
+/** A selectable area (room/zone) for the Matter Service Area cluster. */
+export interface ServiceAreaRoom {
+    areaId: number;
+    mapId: number | null;
+    name: string;
+}
+
+/** Service Area definition: the selectable areas and the maps they belong to. */
+export interface ServiceAreaDef {
+    areas: ServiceAreaRoom[];
+    maps: Array<{ mapId: number; name: string }>;
+}
+
 export interface VacuumState {
     activity: VacuumActivity;
     /** 0-100, or -1 when unknown. */
@@ -80,4 +93,9 @@ export interface VacuumBackend {
      * when the method is present, so models without a feature degrade cleanly.
      */
     findRobot?(): Promise<void>;
+
+    /** Service Area definition (rooms/zones), or null when not configured. */
+    getServiceArea?(): ServiceAreaDef | null;
+    /** Remember which areas the user selected (used by the next startCleaning). */
+    selectAreas?(areaIds: number[]): Promise<void>;
 }

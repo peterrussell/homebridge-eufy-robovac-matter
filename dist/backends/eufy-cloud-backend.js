@@ -12,6 +12,20 @@ const constants_1 = require("../eufy/constants");
 const eufy_login_1 = require("../eufy/eufy-login");
 const protos_1 = require("../eufy/protos");
 const backend_1 = require("./backend");
+function buildServiceArea(config) {
+    const mapId = config.mapId ?? null;
+    let areas;
+    if (config.rooms && config.rooms.length > 0) {
+        areas = config.rooms.map((r) => ({ areaId: r.id, mapId, name: r.name }));
+    }
+    else if (config.zoneCount && config.zoneCount > 0) {
+        areas = Array.from({ length: config.zoneCount }, (_, i) => ({ areaId: i + 1, mapId, name: `Zone ${i + 1}` }));
+    }
+    else {
+        return null;
+    }
+    return { areas, maps: config.mapId !== undefined ? [{ mapId: config.mapId, name: 'Map' }] : [] };
+}
 // Suction clean modes (vacuum-only), index-aligned with NOVEL_CLEAN_SPEEDS.
 const SUCTION_MODES = ['Quiet', 'Standard', 'Turbo', 'Max'].map((label) => ({ label, tags: [backend_1.CLEAN_MODE_TAG_VACUUM] }));
 // Cleaning-type modes (mop-capable), index 0/1/2.
@@ -42,6 +56,8 @@ class EufyCloudBackend {
     kind = 'cloud (eufy)';
     cleanModes;
     session;
+    serviceArea;
+    selectedRoomIds = [];
     listeners = [];
     pollTimer;
     constructor(config, log) {
@@ -49,6 +65,15 @@ class EufyCloudBackend {
         this.log = log;
         this.session = new eufy_login_1.EufyCloudSession(config.email, config.password, log);
         this.cleanModes = config.mop ? MOP_MODES : SUCTION_MODES;
+        this.serviceArea = buildServiceArea(config);
+    }
+    getServiceArea() {
+        return this.serviceArea;
+    }
+    async selectAreas(areaIds) {
+        const valid = new Set((this.serviceArea?.areas ?? []).map((a) => a.areaId));
+        this.selectedRoomIds = areaIds.filter((id) => valid.has(id));
+        this.log.info(`[${this.config.name}] Selected ${this.selectedRoomIds.length > 0 ? `rooms ${this.selectedRoomIds.join(', ')}` : 'all areas'} for the next clean.`);
     }
     async start() {
         await this.session.login();
@@ -181,6 +206,12 @@ class EufyCloudBackend {
         await this.session.getTuya().sendCommand(this.config.deviceId, dps);
     }
     async startCleaning() {
+        if (this.serviceArea && this.selectedRoomIds.length > 0) {
+            await this.send({
+                [constants_1.NOVEL_DPS.PLAY_PAUSE]: (0, protos_1.encodeRoomClean)(constants_1.CONTROL_METHOD.START_SELECT_ROOMS_CLEAN, this.selectedRoomIds, this.config.mapId),
+            });
+            return;
+        }
         await this.send({ [constants_1.NOVEL_DPS.PLAY_PAUSE]: (0, protos_1.encodeModeCtrl)(constants_1.CONTROL_METHOD.START_AUTO_CLEAN, 1) });
     }
     async pause() {

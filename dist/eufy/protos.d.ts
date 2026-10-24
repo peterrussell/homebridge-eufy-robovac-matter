@@ -18,6 +18,8 @@ export declare const CLEAN_TYPE: {
 export declare const MOP_LEVEL_HIGH = 2;
 /** Encode a ModeCtrlRequest to a base64 (delimited) string for dp 152. */
 export declare function encodeModeCtrl(method: number, autoCleanTimes?: number): string;
+/** Encode a START_SELECT_ROOMS_CLEAN ModeCtrlRequest for the given room IDs. */
+export declare function encodeRoomClean(method: number, roomIds: number[], mapId?: number): string;
 export interface DecodedWorkStatus {
     state?: string;
     chargingDone?: boolean;

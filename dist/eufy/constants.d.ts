@@ -19,6 +19,7 @@ export declare const NOVEL_CLEAN_SPEEDS: string[];
 /** ModeCtrlRequest.Method values we use. */
 export declare const CONTROL_METHOD: {
     readonly START_AUTO_CLEAN: 0;
+    readonly START_SELECT_ROOMS_CLEAN: 1;
     readonly START_GOHOME: 6;
     readonly STOP_TASK: 12;
     readonly PAUSE_TASK: 13;

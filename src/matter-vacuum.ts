@@ -132,6 +132,9 @@ export async function registerEufyMatterVacuum(
         }
     };
 
+    // Service Area (rooms/zones) is only exposed when the backend provides one.
+    const serviceArea = backend.getServiceArea?.() ?? null;
+
     const accessory: MatterAccessory = {
         UUID: uuid,
         displayName: info.name,
@@ -233,6 +236,30 @@ export async function registerEufyMatterVacuum(
             },
         },
     };
+
+    if (serviceArea) {
+        (accessory.clusters as Record<string, unknown>).serviceArea = {
+            supportedAreas: serviceArea.areas.map((a) => ({
+                areaId: a.areaId,
+                mapId: a.mapId,
+                areaInfo: { locationInfo: { locationName: a.name, floorNumber: null, areaType: null }, landmarkInfo: null },
+            })),
+            supportedMaps: serviceArea.maps,
+            selectedAreas: [],
+            currentArea: null,
+        };
+        (accessory.handlers as Record<string, unknown>).serviceArea = {
+            selectAreas: async (args: { newAreas?: number[] }) => {
+                const newAreas = args?.newAreas ?? [];
+                try {
+                    await backend.selectAreas?.(newAreas);
+                    await matter.updateAccessoryState(uuid, 'serviceArea', { selectedAreas: newAreas });
+                } catch (error: unknown) {
+                    throw new matter.status.Failure(error instanceof Error ? error.message : String(error));
+                }
+            },
+        };
+    }
 
     await matter.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
     log.info(`[${info.name}] Published native Matter robot vacuum (serial ${info.serial}, backend: ${backend.kind}).`);

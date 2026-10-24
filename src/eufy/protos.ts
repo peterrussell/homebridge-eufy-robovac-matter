@@ -17,9 +17,17 @@ const CONTROL_PROTO = `
 syntax = "proto3";
 package proto.cloud;
 message AutoClean { uint32 clean_times = 1; bool force_mapping = 2; }
+message SelectRoomsClean {
+  message Room { uint32 id = 1; uint32 order = 2; }
+  repeated Room rooms = 1;
+  uint32 clean_times = 2;
+  uint32 map_id = 3;
+  uint32 releases = 4;
+}
 message ModeCtrlRequest {
   enum Method {
     START_AUTO_CLEAN = 0;
+    START_SELECT_ROOMS_CLEAN = 1;
     START_GOHOME = 6;
     STOP_TASK = 12;
     PAUSE_TASK = 13;
@@ -28,6 +36,7 @@ message ModeCtrlRequest {
   Method method = 1;
   uint32 seq = 2;
   AutoClean auto_clean = 3;
+  SelectRoomsClean select_rooms_clean = 4;
 }
 `;
 
@@ -102,6 +111,19 @@ export function encodeModeCtrl(method: number, autoCleanTimes?: number): string 
         payload.auto_clean = { clean_times: autoCleanTimes };
     }
     const message = ModeCtrlRequest.create(payload);
+    return Buffer.from(ModeCtrlRequest.encodeDelimited(message).finish()).toString('base64');
+}
+
+/** Encode a START_SELECT_ROOMS_CLEAN ModeCtrlRequest for the given room IDs. */
+export function encodeRoomClean(method: number, roomIds: number[], mapId?: number): string {
+    const selectRoomsClean: Record<string, unknown> = {
+        rooms: roomIds.map((id, order) => ({ id, order })),
+        clean_times: 1,
+    };
+    if (mapId !== undefined) {
+        selectRoomsClean.map_id = mapId;
+    }
+    const message = ModeCtrlRequest.create({ method, select_rooms_clean: selectRoomsClean });
     return Buffer.from(ModeCtrlRequest.encodeDelimited(message).finish()).toString('base64');
 }
 

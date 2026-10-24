@@ -23,6 +23,7 @@ exports.NOVEL_CLEAN_SPEEDS = ['Quiet', 'Standard', 'Turbo', 'Max'];
 /** ModeCtrlRequest.Method values we use. */
 exports.CONTROL_METHOD = {
     START_AUTO_CLEAN: 0,
+    START_SELECT_ROOMS_CLEAN: 1,
     START_GOHOME: 6,
     STOP_TASK: 12,
     PAUSE_TASK: 13,

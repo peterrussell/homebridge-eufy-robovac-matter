@@ -9,8 +9,8 @@ import type { Logger } from '../robovac-api';
 import { STATUS_POLL_INTERVAL_MS } from '../settings';
 import { CONTROL_METHOD, NOVEL_CLEAN_SPEEDS, NOVEL_DPS, friendlyError } from '../eufy/constants';
 import { EufyCloudSession } from '../eufy/eufy-login';
-import { CLEAN_TYPE, MOP_LEVEL_HIGH, decodeCleanType, decodeErrorCode, decodeWorkStatus, encodeCleanParam, encodeModeCtrl } from '../eufy/protos';
-import { CLEAN_MODE_TAG_MOP, CLEAN_MODE_TAG_VACUUM, type CleanModeOption, type VacuumBackend, type VacuumState } from './backend';
+import { CLEAN_TYPE, MOP_LEVEL_HIGH, decodeCleanType, decodeErrorCode, decodeWorkStatus, encodeCleanParam, encodeModeCtrl, encodeRoomClean } from '../eufy/protos';
+import { CLEAN_MODE_TAG_MOP, CLEAN_MODE_TAG_VACUUM, type CleanModeOption, type ServiceAreaDef, type VacuumBackend, type VacuumState } from './backend';
 
 export interface EufyCloudConfig {
     name: string;
@@ -19,6 +19,25 @@ export interface EufyCloudConfig {
     deviceId: string;
     /** Mop-capable model (e.g. L60 Hybrid): expose Vacuum/Mop/Vacuum & Mop clean modes. */
     mop?: boolean;
+    /** User-defined rooms/zones for Service Area (id must match the robot's map room id). */
+    rooms?: Array<{ id: number; name: string }>;
+    /** Number of placeholder zones ("Zone 1".."Zone N") when rooms aren't listed. */
+    zoneCount?: number;
+    /** Map id the rooms belong to (optional). */
+    mapId?: number;
+}
+
+function buildServiceArea(config: EufyCloudConfig): ServiceAreaDef | null {
+    const mapId = config.mapId ?? null;
+    let areas: ServiceAreaDef['areas'];
+    if (config.rooms && config.rooms.length > 0) {
+        areas = config.rooms.map((r) => ({ areaId: r.id, mapId, name: r.name }));
+    } else if (config.zoneCount && config.zoneCount > 0) {
+        areas = Array.from({ length: config.zoneCount }, (_, i) => ({ areaId: i + 1, mapId, name: `Zone ${i + 1}` }));
+    } else {
+        return null;
+    }
+    return { areas, maps: config.mapId !== undefined ? [{ mapId: config.mapId, name: 'Map' }] : [] };
 }
 
 // Suction clean modes (vacuum-only), index-aligned with NOVEL_CLEAN_SPEEDS.
@@ -52,12 +71,27 @@ export class EufyCloudBackend implements VacuumBackend {
     readonly cleanModes: CleanModeOption[];
 
     private readonly session: EufyCloudSession;
+    private readonly serviceArea: ServiceAreaDef | null;
+    private selectedRoomIds: number[] = [];
     private readonly listeners: Array<(state: VacuumState) => void> = [];
     private pollTimer?: NodeJS.Timeout;
 
     constructor(private readonly config: EufyCloudConfig, private readonly log: Logger) {
         this.session = new EufyCloudSession(config.email, config.password, log);
         this.cleanModes = config.mop ? MOP_MODES : SUCTION_MODES;
+        this.serviceArea = buildServiceArea(config);
+    }
+
+    getServiceArea(): ServiceAreaDef | null {
+        return this.serviceArea;
+    }
+
+    async selectAreas(areaIds: number[]): Promise<void> {
+        const valid = new Set((this.serviceArea?.areas ?? []).map((a) => a.areaId));
+        this.selectedRoomIds = areaIds.filter((id) => valid.has(id));
+        this.log.info(
+            `[${this.config.name}] Selected ${this.selectedRoomIds.length > 0 ? `rooms ${this.selectedRoomIds.join(', ')}` : 'all areas'} for the next clean.`,
+        );
     }
 
     async start(): Promise<void> {
@@ -204,6 +238,12 @@ export class EufyCloudBackend implements VacuumBackend {
     }
 
     async startCleaning(): Promise<void> {
+        if (this.serviceArea && this.selectedRoomIds.length > 0) {
+            await this.send({
+                [NOVEL_DPS.PLAY_PAUSE]: encodeRoomClean(CONTROL_METHOD.START_SELECT_ROOMS_CLEAN, this.selectedRoomIds, this.config.mapId),
+            });
+            return;
+        }
         await this.send({ [NOVEL_DPS.PLAY_PAUSE]: encodeModeCtrl(CONTROL_METHOD.START_AUTO_CLEAN, 1) });
     }
 

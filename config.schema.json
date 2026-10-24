@@ -84,6 +84,30 @@
               "type": "boolean",
               "default": false,
               "description": "Enable for Hybrid models (e.g. L60 Hybrid). Exposes Vacuum / Mop / Vacuum & Mop clean modes instead of suction levels. Note: Apple Home doesn't display clean modes, but other Matter controllers do."
+            },
+            "rooms": {
+              "title": "Rooms (cloud backend)",
+              "type": "array",
+              "description": "Define selectable rooms for Apple Home's Service Area (iOS 18.4+). The 'id' must match the robot's map room id; use placeholder zones first (below) to discover them by trial.",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": { "title": "Room ID", "type": "integer", "minimum": 0 },
+                  "name": { "title": "Name", "type": "string" }
+                }
+              }
+            },
+            "zoneCount": {
+              "title": "Placeholder zones (cloud backend)",
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 61,
+              "description": "If no rooms are listed, generate this many placeholder zones (Zone 1..N, ids 1..N) to discover which id maps to which room."
+            },
+            "mapId": {
+              "title": "Map ID (cloud backend, optional)",
+              "type": "integer",
+              "description": "The map the rooms belong to. Usually can be left blank."
             }
           }
         }
@@ -106,7 +130,16 @@
         "devices[].protocolVersion",
         "devices[].email",
         "devices[].password",
-        "devices[].mop"
+        "devices[].mop",
+        "devices[].zoneCount",
+        "devices[].mapId",
+        {
+          "key": "devices[].rooms",
+          "type": "array",
+          "title": "Rooms",
+          "buttonText": "Add Room",
+          "items": ["devices[].rooms[].id", "devices[].rooms[].name"]
+        }
       ]
     }
   ]

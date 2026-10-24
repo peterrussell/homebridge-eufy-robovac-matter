@@ -88,6 +88,13 @@ export class EufyRobovacMatterPlatform implements DynamicPlatformPlugin {
             const email = typeof entry.email === 'string' ? entry.email.trim() : '';
             const password = typeof entry.password === 'string' ? entry.password : '';
             const mop = entry.mop === true;
+            const rooms = Array.isArray(entry.rooms)
+                ? (entry.rooms as Array<Record<string, unknown>>)
+                    .map((r) => ({ id: typeof r.id === 'number' ? r.id : parseInt(String(r.id), 10), name: typeof r.name === 'string' && r.name.trim() ? r.name.trim() : `Room ${r.id}` }))
+                    .filter((r) => Number.isFinite(r.id))
+                : undefined;
+            const zoneCount = typeof entry.zoneCount === 'number' && entry.zoneCount > 0 ? entry.zoneCount : undefined;
+            const mapId = typeof entry.mapId === 'number' ? entry.mapId : undefined;
             const requestedBackend = typeof entry.backend === 'string' ? entry.backend.trim().toLowerCase() : 'auto';
 
             // Decide backend: explicit `backend`, else infer from the fields present.
@@ -102,7 +109,7 @@ export class EufyRobovacMatterPlatform implements DynamicPlatformPlugin {
                 devices.push({
                     name,
                     serial: deviceId,
-                    backend: new EufyCloudBackend({ name, email, password, deviceId, mop }, this.log),
+                    backend: new EufyCloudBackend({ name, email, password, deviceId, mop, rooms, zoneCount, mapId }, this.log),
                 });
                 continue;
             }
