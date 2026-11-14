@@ -109,7 +109,7 @@ export class EufyRobovacMatterPlatform implements DynamicPlatformPlugin {
                 devices.push({
                     name,
                     serial: deviceId,
-                    backend: new EufyCloudBackend({ name, email, password, deviceId, mop, rooms, zoneCount, mapId }, this.log),
+                    backend: new EufyCloudBackend({ name, email, password, deviceId, mop, rooms, zoneCount, mapId, storagePath: this.api.user.storagePath() }, this.log),
                 });
                 continue;
             }

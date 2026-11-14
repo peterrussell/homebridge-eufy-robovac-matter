@@ -15,6 +15,15 @@ export interface TuyaCloudOptions {
     apiEtVersion: string;
     ttid: string;
     region: string;
+    /** Restore a previously-saved session instead of logging in. */
+    session?: TuyaSession;
+}
+/** A resumable Tuya session (avoids a fresh login, which is daily-rate-limited). */
+export interface TuyaSession {
+    sid: string;
+    deviceID: string;
+    endpoint: string;
+    region: string;
 }
 export declare class TuyaCloud {
     private readonly key;
@@ -27,6 +36,8 @@ export declare class TuyaCloud {
     private endpoint;
     sid?: string;
     constructor(options: TuyaCloudOptions);
+    /** Export the current session for persistence, or null if not logged in. */
+    exportSession(): TuyaSession | null;
     private mobileHash;
     request(options: {
         action: string;

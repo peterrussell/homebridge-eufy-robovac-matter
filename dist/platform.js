@@ -91,7 +91,7 @@ class EufyRobovacMatterPlatform {
                 devices.push({
                     name,
                     serial: deviceId,
-                    backend: new eufy_cloud_backend_1.EufyCloudBackend({ name, email, password, deviceId, mop, rooms, zoneCount, mapId }, this.log),
+                    backend: new eufy_cloud_backend_1.EufyCloudBackend({ name, email, password, deviceId, mop, rooms, zoneCount, mapId, storagePath: this.api.user.storagePath() }, this.log),
                 });
                 continue;
             }

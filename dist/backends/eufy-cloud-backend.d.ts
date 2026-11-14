@@ -22,6 +22,8 @@ export interface EufyCloudConfig {
     zoneCount?: number;
     /** Map id the rooms belong to (optional). */
     mapId?: number;
+    /** Directory for persisting the Tuya session across restarts (Homebridge storage path). */
+    storagePath?: string;
 }
 export declare class EufyCloudBackend implements VacuumBackend {
     private readonly config;
@@ -34,6 +36,12 @@ export declare class EufyCloudBackend implements VacuumBackend {
     private readonly listeners;
     private pollTimer?;
     constructor(config: EufyCloudConfig, log: Logger);
+    /**
+     * Run a Tuya cloud call, logging in if needed. On a stale-session failure it
+     * re-authenticates once and retries — but never on the daily login-limit
+     * error, which re-logging in would only make worse.
+     */
+    private callTuya;
     getServiceArea(): ServiceAreaDef | null;
     selectAreas(areaIds: number[]): Promise<void>;
     start(): Promise<void>;

@@ -5,8 +5,13 @@
  * device's protobuf-encoded DPS for state, and sends protobuf ModeCtrlRequest
  * commands. Self-contained port of the relevant eufy-clean logic.
  */
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.EufyCloudBackend = void 0;
+const crypto_1 = __importDefault(require("crypto"));
+const path_1 = __importDefault(require("path"));
 const settings_1 = require("../settings");
 const constants_1 = require("../eufy/constants");
 const eufy_login_1 = require("../eufy/eufy-login");
@@ -63,9 +68,36 @@ class EufyCloudBackend {
     constructor(config, log) {
         this.config = config;
         this.log = log;
-        this.session = new eufy_login_1.EufyCloudSession(config.email, config.password, log);
+        // Cache the session per account (shared by same-account robots) to minimise logins.
+        const sessionFile = config.storagePath
+            ? path_1.default.join(config.storagePath, `eufy-robovac-matter-session-${crypto_1.default.createHash('md5').update(config.email).digest('hex')}.json`)
+            : undefined;
+        this.session = new eufy_login_1.EufyCloudSession(config.email, config.password, log, sessionFile);
         this.cleanModes = config.mop ? MOP_MODES : SUCTION_MODES;
         this.serviceArea = buildServiceArea(config);
+    }
+    /**
+     * Run a Tuya cloud call, logging in if needed. On a stale-session failure it
+     * re-authenticates once and retries — but never on the daily login-limit
+     * error, which re-logging in would only make worse.
+     */
+    async callTuya(fn) {
+        if (!this.session.loggedIn) {
+            await this.session.login();
+        }
+        try {
+            return await fn(this.session.getTuya());
+        }
+        catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            if (/USER_SESSION_LIMIT|too many|FREQUENCY/i.test(message)) {
+                throw error; // rate limited — do not try to log in again
+            }
+            this.log.debug(`[${this.config.name}] cloud call failed, re-authenticating once: ${message}`);
+            this.session.invalidate();
+            await this.session.login();
+            return await fn(this.session.getTuya());
+        }
     }
     getServiceArea() {
         return this.serviceArea;
@@ -80,7 +112,7 @@ class EufyCloudBackend {
         this.refresh().catch((error) => this.log.debug(`[${this.config.name}] initial cloud status failed:`, error));
         this.pollTimer = setInterval(() => {
             this.refresh().catch((error) => this.log.debug(`[${this.config.name}] cloud status poll failed:`, error));
-        }, settings_1.STATUS_POLL_INTERVAL_MS);
+        }, settings_1.CLOUD_POLL_INTERVAL_MS);
         this.pollTimer.unref();
     }
     async stop() {
@@ -97,10 +129,7 @@ class EufyCloudBackend {
         }
     }
     async refresh() {
-        if (!this.session.loggedIn) {
-            await this.session.login();
-        }
-        const dps = await this.session.getTuya().getDeviceDps(this.config.deviceId);
+        const dps = await this.callTuya((tuya) => tuya.getDeviceDps(this.config.deviceId));
         if (!dps) {
             throw new Error(`device ${this.config.deviceId} not found in the eufy cloud account`);
         }
@@ -200,10 +229,7 @@ class EufyCloudBackend {
         }
     }
     async send(dps) {
-        if (!this.session.loggedIn) {
-            await this.session.login();
-        }
-        await this.session.getTuya().sendCommand(this.config.deviceId, dps);
+        await this.callTuya((tuya) => tuya.sendCommand(this.config.deviceId, dps));
     }
     async startCleaning() {
         if (this.serviceArea && this.selectedRoomIds.length > 0) {

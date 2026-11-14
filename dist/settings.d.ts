@@ -8,6 +8,8 @@ export declare const PLATFORM_NAME = "EufyRobovacMatter";
 export declare const CACHING_DURATION_MS = 60000;
 /** How often we actively poll the vacuum for a fresh status (ms). */
 export declare const STATUS_POLL_INTERVAL_MS = 30000;
+/** Cloud polling is gentler to stay well under the eufy/Tuya cloud API limits. */
+export declare const CLOUD_POLL_INTERVAL_MS = 60000;
 /** Battery percentage at or below which the battery is reported as low. */
 export declare const LOW_BATTERY_THRESHOLD = 10;
 /** Battery percentage at or below which the charge level is reported as "warning". */

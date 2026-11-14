@@ -18,6 +18,16 @@ export interface TuyaCloudOptions {
     apiEtVersion: string;
     ttid: string;
     region: string;
+    /** Restore a previously-saved session instead of logging in. */
+    session?: TuyaSession;
+}
+
+/** A resumable Tuya session (avoids a fresh login, which is daily-rate-limited). */
+export interface TuyaSession {
+    sid: string;
+    deviceID: string;
+    endpoint: string;
+    region: string;
 }
 
 const REGION_ENDPOINTS: Record<string, string> = {
@@ -79,7 +89,7 @@ export class TuyaCloud {
     private readonly keyHmac: string;
     private readonly apiEtVersion: string;
     private readonly ttid: string;
-    private readonly deviceID = randomDeviceId();
+    private readonly deviceID: string;
     private region: string;
     private endpoint: string;
     sid?: string;
@@ -90,8 +100,22 @@ export class TuyaCloud {
         this.keyHmac = `${options.certSign}_${options.secret2}_${options.secret}`;
         this.apiEtVersion = options.apiEtVersion;
         this.ttid = options.ttid;
-        this.region = options.region in REGION_ENDPOINTS ? options.region : 'EU';
-        this.endpoint = REGION_ENDPOINTS[this.region] ?? REGION_ENDPOINTS.EU;
+        if (options.session) {
+            // Resume a saved session; no login needed.
+            this.deviceID = options.session.deviceID;
+            this.sid = options.session.sid;
+            this.endpoint = options.session.endpoint;
+            this.region = options.session.region;
+        } else {
+            this.deviceID = randomDeviceId();
+            this.region = options.region in REGION_ENDPOINTS ? options.region : 'EU';
+            this.endpoint = REGION_ENDPOINTS[this.region] ?? REGION_ENDPOINTS.EU;
+        }
+    }
+
+    /** Export the current session for persistence, or null if not logged in. */
+    exportSession(): TuyaSession | null {
+        return this.sid ? { sid: this.sid, deviceID: this.deviceID, endpoint: this.endpoint, region: this.region } : null;
     }
 
     private mobileHash(data: string): string {
@@ -218,13 +242,14 @@ export class TuyaCloud {
         const groups = await this.request({ action: 'tuya.m.location.list' }) as Array<{ groupId: string }>;
         for (const group of groups) {
             const devices = await this.request({ action: 'tuya.m.my.group.device.list', gid: group.groupId }) as any[];
-            const shared = await this.request({ action: 'tuya.m.my.shared.device.list' }) as any[];
-            const found = [...(devices || []), ...(shared || [])].find((d) => d.devId === deviceId);
+            const found = (devices || []).find((d) => d.devId === deviceId);
             if (found) {
                 return found;
             }
         }
-        return undefined;
+        // Fallback to shared devices only if not found in any owned group.
+        const shared = await this.request({ action: 'tuya.m.my.shared.device.list' }) as any[];
+        return (shared || []).find((d) => d.devId === deviceId);
     }
 
     /** Return the device's current dps map, or undefined if not found. */

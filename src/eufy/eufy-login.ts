@@ -7,10 +7,11 @@
  */
 
 import crypto from 'crypto';
+import fs from 'fs';
 
 import type { Logger } from '../robovac-api';
 import { EUFY_DOMAIN_CONFIGS, TUYA_APP } from './constants';
-import { TuyaCloud } from './tuya-cloud';
+import { TuyaCloud, type TuyaSession } from './tuya-cloud';
 
 export class EufyCloudSession {
     private readonly openudid = crypto.randomBytes(16).toString('hex');
@@ -20,9 +21,25 @@ export class EufyCloudSession {
         private readonly username: string,
         private readonly password: string,
         private readonly log: Logger,
+        /** File to persist the Tuya session so restarts don't re-login (daily-rate-limited). */
+        private readonly sessionFile?: string,
     ) {}
 
     async login(): Promise<void> {
+        if (this.tuya) {
+            return;
+        }
+
+        // 1. Resume a saved session if we have one — this performs NO network
+        //    login, so restarts don't count against Tuya's daily login limit.
+        const cached = this.loadSession();
+        if (cached) {
+            this.tuya = new TuyaCloud({ ...TUYA_APP, region: cached.region, session: cached });
+            this.log.info('Resumed saved Tuya cloud session (no login needed)');
+            return;
+        }
+
+        // 2. No cached session — perform a full login and save it.
         const session = await this.eufyLogin();
         const uid = session?.user_id;
         if (!uid) {
@@ -39,6 +56,45 @@ export class EufyCloudSession {
             this.log.info('Tuya cloud login successful (US)');
         }
         this.tuya = tuya;
+        this.saveSession(tuya.exportSession());
+    }
+
+    /** Drop the current session (e.g. after it's rejected) so the next login re-authenticates. */
+    invalidate(): void {
+        this.tuya = undefined;
+        if (this.sessionFile) {
+            try {
+                fs.rmSync(this.sessionFile, { force: true });
+            } catch {
+                /* ignore */
+            }
+        }
+    }
+
+    private loadSession(): TuyaSession | null {
+        if (!this.sessionFile) {
+            return null;
+        }
+        try {
+            const s = JSON.parse(fs.readFileSync(this.sessionFile, 'utf8')) as TuyaSession;
+            if (s?.sid && s?.deviceID && s?.endpoint && s?.region) {
+                return s;
+            }
+        } catch {
+            /* no usable cache */
+        }
+        return null;
+    }
+
+    private saveSession(s: TuyaSession | null): void {
+        if (!this.sessionFile || !s) {
+            return;
+        }
+        try {
+            fs.writeFileSync(this.sessionFile, JSON.stringify(s), { mode: 0o600 });
+        } catch (e) {
+            this.log.debug('Could not persist Tuya session:', e);
+        }
     }
 
     private async eufyLogin(): Promise<{ access_token?: string; user_id?: string } | null> {

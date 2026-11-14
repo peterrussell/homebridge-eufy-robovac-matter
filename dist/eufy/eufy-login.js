@@ -12,20 +12,37 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.EufyCloudSession = void 0;
 const crypto_1 = __importDefault(require("crypto"));
+const fs_1 = __importDefault(require("fs"));
 const constants_1 = require("./constants");
 const tuya_cloud_1 = require("./tuya-cloud");
 class EufyCloudSession {
     username;
     password;
     log;
+    sessionFile;
     openudid = crypto_1.default.randomBytes(16).toString('hex');
     tuya;
-    constructor(username, password, log) {
+    constructor(username, password, log, 
+    /** File to persist the Tuya session so restarts don't re-login (daily-rate-limited). */
+    sessionFile) {
         this.username = username;
         this.password = password;
         this.log = log;
+        this.sessionFile = sessionFile;
     }
     async login() {
+        if (this.tuya) {
+            return;
+        }
+        // 1. Resume a saved session if we have one — this performs NO network
+        //    login, so restarts don't count against Tuya's daily login limit.
+        const cached = this.loadSession();
+        if (cached) {
+            this.tuya = new tuya_cloud_1.TuyaCloud({ ...constants_1.TUYA_APP, region: cached.region, session: cached });
+            this.log.info('Resumed saved Tuya cloud session (no login needed)');
+            return;
+        }
+        // 2. No cached session — perform a full login and save it.
         const session = await this.eufyLogin();
         const uid = session?.user_id;
         if (!uid) {
@@ -42,6 +59,45 @@ class EufyCloudSession {
             this.log.info('Tuya cloud login successful (US)');
         }
         this.tuya = tuya;
+        this.saveSession(tuya.exportSession());
+    }
+    /** Drop the current session (e.g. after it's rejected) so the next login re-authenticates. */
+    invalidate() {
+        this.tuya = undefined;
+        if (this.sessionFile) {
+            try {
+                fs_1.default.rmSync(this.sessionFile, { force: true });
+            }
+            catch {
+                /* ignore */
+            }
+        }
+    }
+    loadSession() {
+        if (!this.sessionFile) {
+            return null;
+        }
+        try {
+            const s = JSON.parse(fs_1.default.readFileSync(this.sessionFile, 'utf8'));
+            if (s?.sid && s?.deviceID && s?.endpoint && s?.region) {
+                return s;
+            }
+        }
+        catch {
+            /* no usable cache */
+        }
+        return null;
+    }
+    saveSession(s) {
+        if (!this.sessionFile || !s) {
+            return;
+        }
+        try {
+            fs_1.default.writeFileSync(this.sessionFile, JSON.stringify(s), { mode: 0o600 });
+        }
+        catch (e) {
+            this.log.debug('Could not persist Tuya session:', e);
+        }
     }
     async eufyLogin() {
         for (const cfg of constants_1.EUFY_DOMAIN_CONFIGS) {

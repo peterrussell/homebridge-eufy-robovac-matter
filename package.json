@@ -1,7 +1,7 @@
 {
   "name": "homebridge-eufy-clean-robovac-matter",
   "displayName": "Homebridge Eufy RoboVac (Matter)",
-  "version": "2.3.0",
+  "version": "2.4.0",
   "description": "Homebridge 2.x plugin that exposes a Eufy RoboVac as a native Matter Robotic Vacuum Cleaner, controlled locally over TuyAPI.",
   "main": "dist/index.js",
   "repository": {

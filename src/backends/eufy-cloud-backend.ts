@@ -5,8 +5,11 @@
  * commands. Self-contained port of the relevant eufy-clean logic.
  */
 
+import crypto from 'crypto';
+import path from 'path';
+
 import type { Logger } from '../robovac-api';
-import { STATUS_POLL_INTERVAL_MS } from '../settings';
+import { CLOUD_POLL_INTERVAL_MS } from '../settings';
 import { CONTROL_METHOD, NOVEL_CLEAN_SPEEDS, NOVEL_DPS, friendlyError } from '../eufy/constants';
 import { EufyCloudSession } from '../eufy/eufy-login';
 import { CLEAN_TYPE, MOP_LEVEL_HIGH, decodeCleanType, decodeErrorCode, decodeWorkStatus, encodeCleanParam, encodeModeCtrl, encodeRoomClean } from '../eufy/protos';
@@ -25,6 +28,8 @@ export interface EufyCloudConfig {
     zoneCount?: number;
     /** Map id the rooms belong to (optional). */
     mapId?: number;
+    /** Directory for persisting the Tuya session across restarts (Homebridge storage path). */
+    storagePath?: string;
 }
 
 function buildServiceArea(config: EufyCloudConfig): ServiceAreaDef | null {
@@ -77,9 +82,36 @@ export class EufyCloudBackend implements VacuumBackend {
     private pollTimer?: NodeJS.Timeout;
 
     constructor(private readonly config: EufyCloudConfig, private readonly log: Logger) {
-        this.session = new EufyCloudSession(config.email, config.password, log);
+        // Cache the session per account (shared by same-account robots) to minimise logins.
+        const sessionFile = config.storagePath
+            ? path.join(config.storagePath, `eufy-robovac-matter-session-${crypto.createHash('md5').update(config.email).digest('hex')}.json`)
+            : undefined;
+        this.session = new EufyCloudSession(config.email, config.password, log, sessionFile);
         this.cleanModes = config.mop ? MOP_MODES : SUCTION_MODES;
         this.serviceArea = buildServiceArea(config);
+    }
+
+    /**
+     * Run a Tuya cloud call, logging in if needed. On a stale-session failure it
+     * re-authenticates once and retries — but never on the daily login-limit
+     * error, which re-logging in would only make worse.
+     */
+    private async callTuya<T>(fn: (tuya: ReturnType<EufyCloudSession['getTuya']>) => Promise<T>): Promise<T> {
+        if (!this.session.loggedIn) {
+            await this.session.login();
+        }
+        try {
+            return await fn(this.session.getTuya());
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            if (/USER_SESSION_LIMIT|too many|FREQUENCY/i.test(message)) {
+                throw error; // rate limited — do not try to log in again
+            }
+            this.log.debug(`[${this.config.name}] cloud call failed, re-authenticating once: ${message}`);
+            this.session.invalidate();
+            await this.session.login();
+            return await fn(this.session.getTuya());
+        }
     }
 
     getServiceArea(): ServiceAreaDef | null {
@@ -99,7 +131,7 @@ export class EufyCloudBackend implements VacuumBackend {
         this.refresh().catch((error) => this.log.debug(`[${this.config.name}] initial cloud status failed:`, error));
         this.pollTimer = setInterval(() => {
             this.refresh().catch((error) => this.log.debug(`[${this.config.name}] cloud status poll failed:`, error));
-        }, STATUS_POLL_INTERVAL_MS);
+        }, CLOUD_POLL_INTERVAL_MS);
         this.pollTimer.unref();
     }
 
@@ -120,10 +152,7 @@ export class EufyCloudBackend implements VacuumBackend {
     }
 
     async refresh(): Promise<VacuumState> {
-        if (!this.session.loggedIn) {
-            await this.session.login();
-        }
-        const dps = await this.session.getTuya().getDeviceDps(this.config.deviceId);
+        const dps = await this.callTuya((tuya) => tuya.getDeviceDps(this.config.deviceId));
         if (!dps) {
             throw new Error(`device ${this.config.deviceId} not found in the eufy cloud account`);
         }
@@ -231,10 +260,7 @@ export class EufyCloudBackend implements VacuumBackend {
     }
 
     private async send(dps: Record<string, string | number | boolean>): Promise<void> {
-        if (!this.session.loggedIn) {
-            await this.session.login();
-        }
-        await this.session.getTuya().sendCommand(this.config.deviceId, dps);
+        await this.callTuya((tuya) => tuya.sendCommand(this.config.deviceId, dps));
     }
 
     async startCleaning(): Promise<void> {

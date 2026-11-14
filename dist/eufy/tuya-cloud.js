@@ -65,7 +65,7 @@ class TuyaCloud {
     keyHmac;
     apiEtVersion;
     ttid;
-    deviceID = randomDeviceId();
+    deviceID;
     region;
     endpoint;
     sid;
@@ -75,8 +75,22 @@ class TuyaCloud {
         this.keyHmac = `${options.certSign}_${options.secret2}_${options.secret}`;
         this.apiEtVersion = options.apiEtVersion;
         this.ttid = options.ttid;
-        this.region = options.region in REGION_ENDPOINTS ? options.region : 'EU';
-        this.endpoint = REGION_ENDPOINTS[this.region] ?? REGION_ENDPOINTS.EU;
+        if (options.session) {
+            // Resume a saved session; no login needed.
+            this.deviceID = options.session.deviceID;
+            this.sid = options.session.sid;
+            this.endpoint = options.session.endpoint;
+            this.region = options.session.region;
+        }
+        else {
+            this.deviceID = randomDeviceId();
+            this.region = options.region in REGION_ENDPOINTS ? options.region : 'EU';
+            this.endpoint = REGION_ENDPOINTS[this.region] ?? REGION_ENDPOINTS.EU;
+        }
+    }
+    /** Export the current session for persistence, or null if not logged in. */
+    exportSession() {
+        return this.sid ? { sid: this.sid, deviceID: this.deviceID, endpoint: this.endpoint, region: this.region } : null;
     }
     mobileHash(data) {
         const h = md5(data);
@@ -184,13 +198,14 @@ class TuyaCloud {
         const groups = await this.request({ action: 'tuya.m.location.list' });
         for (const group of groups) {
             const devices = await this.request({ action: 'tuya.m.my.group.device.list', gid: group.groupId });
-            const shared = await this.request({ action: 'tuya.m.my.shared.device.list' });
-            const found = [...(devices || []), ...(shared || [])].find((d) => d.devId === deviceId);
+            const found = (devices || []).find((d) => d.devId === deviceId);
             if (found) {
                 return found;
             }
         }
-        return undefined;
+        // Fallback to shared devices only if not found in any owned group.
+        const shared = await this.request({ action: 'tuya.m.my.shared.device.list' });
+        return (shared || []).find((d) => d.devId === deviceId);
     }
     /** Return the device's current dps map, or undefined if not found. */
     async getDeviceDps(deviceId) {
