@@ -20,4 +20,12 @@ export declare class EufyRobovacMatterPlatform implements DynamicPlatformPlugin 
     private publishVacuums;
     /** Validate config and construct the appropriate backend for each device. */
     private buildDevices;
+    /**
+     * Persist seeded default rooms into config.json for a device that has no
+     * `rooms` key yet. Re-reads the file so a concurrent edit is respected, and
+     * only ever writes when `rooms` is still absent — so a user who has since
+     * set or cleared the list is never overwritten. Best-effort: a failure just
+     * means the defaults live in memory for this run and are retried next time.
+     */
+    private seedDefaultRooms;
 }

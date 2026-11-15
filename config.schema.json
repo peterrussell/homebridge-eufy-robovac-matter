@@ -88,7 +88,7 @@
             "rooms": {
               "title": "Rooms (cloud backend)",
               "type": "array",
-              "description": "Rooms shown in Apple Home's Service Area (iOS 18.4+). Each 'id' must match the robot's map room id. To discover the ids, add a few rooms named e.g. 'Room 1', 'Room 2' (ids 1, 2, ...), clean each from Home to see which real room it runs, then rename them and remove any that aren't real rooms.",
+              "description": "Rooms shown in Apple Home's Service Area (iOS 18.4+). On a fresh install three editable placeholders (Room 1-3) are added here automatically; later restarts never overwrite your edits. Each 'id' must match the robot's map room id. To discover the ids, clean each placeholder from Home to see which real room it runs, then rename it — and add or remove rows — to match your robot's rooms.",
               "items": {
                 "type": "object",
                 "properties": {

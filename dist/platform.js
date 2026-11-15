@@ -12,10 +12,23 @@
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.EufyRobovacMatterPlatform = void 0;
+const node_fs_1 = require("node:fs");
 const tuya_local_backend_1 = require("./backends/tuya-local-backend");
 const eufy_cloud_backend_1 = require("./backends/eufy-cloud-backend");
 const matter_vacuum_1 = require("./matter-vacuum");
 const settings_1 = require("./settings");
+/**
+ * Rooms seeded into a cloud device the first time it is configured (when the
+ * config has no `rooms` key at all). They give the user editable placeholders
+ * to discover and rename the robot's real map room ids. Once `rooms` exists in
+ * the config — even as an empty array, meaning the user deleted them — it is
+ * never touched again.
+ */
+const DEFAULT_ROOMS = [
+    { id: 1, name: 'Room 1' },
+    { id: 2, name: 'Room 2' },
+    { id: 3, name: 'Room 3' },
+];
 class EufyRobovacMatterPlatform {
     log;
     config;
@@ -73,7 +86,12 @@ class EufyRobovacMatterPlatform {
             const email = typeof entry.email === 'string' ? entry.email.trim() : '';
             const password = typeof entry.password === 'string' ? entry.password : '';
             const mop = entry.mop === true;
-            const rooms = Array.isArray(entry.rooms)
+            // A missing `rooms` key means this cloud device has never been
+            // configured for Service Area, so seed a few editable defaults.
+            // A present key (even an empty array) is the user's choice and is
+            // left untouched.
+            const roomsConfigured = entry.rooms !== undefined;
+            let rooms = Array.isArray(entry.rooms)
                 ? entry.rooms
                     .map((r) => ({ id: typeof r.id === 'number' ? r.id : parseInt(String(r.id), 10), name: typeof r.name === 'string' && r.name.trim() ? r.name.trim() : `Room ${r.id}` }))
                     .filter((r) => Number.isFinite(r.id))
@@ -86,6 +104,12 @@ class EufyRobovacMatterPlatform {
                 if (!email || !password || !deviceId) {
                     this.log.warn(`Skipping "${name}": cloud backend needs email, password and deviceId.`);
                     continue;
+                }
+                // Fresh install: seed editable default rooms and write them back
+                // to config.json so they appear in the UI for renaming.
+                if (!roomsConfigured) {
+                    rooms = DEFAULT_ROOMS.map((r) => ({ ...r }));
+                    this.seedDefaultRooms(deviceId, name, rooms);
                 }
                 devices.push({
                     name,
@@ -105,6 +129,38 @@ class EufyRobovacMatterPlatform {
             });
         }
         return devices;
+    }
+    /**
+     * Persist seeded default rooms into config.json for a device that has no
+     * `rooms` key yet. Re-reads the file so a concurrent edit is respected, and
+     * only ever writes when `rooms` is still absent — so a user who has since
+     * set or cleared the list is never overwritten. Best-effort: a failure just
+     * means the defaults live in memory for this run and are retried next time.
+     */
+    seedDefaultRooms(deviceId, name, rooms) {
+        try {
+            const configPath = this.api.user.configPath();
+            const cfg = JSON.parse((0, node_fs_1.readFileSync)(configPath, 'utf8'));
+            const platforms = Array.isArray(cfg.platforms) ? cfg.platforms : [];
+            const block = platforms.find((p) => p && p.platform === settings_1.PLATFORM_NAME);
+            const blockDevices = block && Array.isArray(block.devices) ? block.devices : null;
+            if (!blockDevices) {
+                return;
+            }
+            const dev = blockDevices.find((d) => d && String(d.deviceId ?? '').trim() === deviceId);
+            // Only seed when the key is genuinely absent — never clobber a user's
+            // set or deliberately-emptied list.
+            if (!dev || dev.rooms !== undefined) {
+                return;
+            }
+            dev.rooms = rooms;
+            (0, node_fs_1.writeFileSync)(configPath, JSON.stringify(cfg, null, 4), 'utf8');
+            this.log.info(`Seeded ${rooms.length} default rooms for "${name}" in config.json — rename them in the plugin settings to match your robot's real rooms.`);
+        }
+        catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.log.warn(`Could not seed default rooms for "${name}" into config.json: ${message}`);
+        }
     }
 }
 exports.EufyRobovacMatterPlatform = EufyRobovacMatterPlatform;

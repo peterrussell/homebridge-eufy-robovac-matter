@@ -114,9 +114,15 @@ eufy cloud doesn't expose the robot's room list, so you define it yourself:
 
 Selecting rooms in Home and starting a clean sends the robot a room‑clean for
 those ids; with none selected it does a full clean. The `id` must match the
-robot's **map room id**. To discover them, add a few rooms named `Room 1`,
-`Room 2`, … (ids `1`, `2`, …), clean each one from Home to see which real room
-it runs, then rename them accordingly and delete any that aren't real rooms.
+robot's **map room id**.
+
+On a **fresh install** the plugin seeds three editable placeholders
+(`Room 1`–`Room 3`, ids `1`–`3`) into the device config automatically, so they
+appear in the settings UI and Apple Home's Service Area straight away. Later
+restarts **never overwrite** your edits — once the `rooms` key exists (even if
+you empty it), the plugin leaves it alone. To discover the real ids, clean each
+placeholder from Home to see which room it runs, then rename it — and add or
+remove rows — to match your robot's rooms.
 
 ### Troubleshooting: connects but every command times out
 
