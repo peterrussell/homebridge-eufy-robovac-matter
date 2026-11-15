@@ -13,13 +13,11 @@ export interface EufyCloudConfig {
     deviceId: string;
     /** Mop-capable model (e.g. L60 Hybrid): expose Vacuum/Mop/Vacuum & Mop clean modes. */
     mop?: boolean;
-    /** User-defined rooms/zones for Service Area (id must match the robot's map room id). */
+    /** User-defined rooms for Service Area (id must match the robot's map room id). */
     rooms?: Array<{
         id: number;
         name: string;
     }>;
-    /** Number of placeholder rooms ("Room 1".."Room N") when rooms aren't listed. */
-    placeholderRooms?: number;
     /** Map id the rooms belong to (optional). */
     mapId?: number;
     /** Directory for persisting the Tuya session across restarts (Homebridge storage path). */

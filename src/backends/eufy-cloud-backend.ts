@@ -22,10 +22,8 @@ export interface EufyCloudConfig {
     deviceId: string;
     /** Mop-capable model (e.g. L60 Hybrid): expose Vacuum/Mop/Vacuum & Mop clean modes. */
     mop?: boolean;
-    /** User-defined rooms/zones for Service Area (id must match the robot's map room id). */
+    /** User-defined rooms for Service Area (id must match the robot's map room id). */
     rooms?: Array<{ id: number; name: string }>;
-    /** Number of placeholder rooms ("Room 1".."Room N") when rooms aren't listed. */
-    placeholderRooms?: number;
     /** Map id the rooms belong to (optional). */
     mapId?: number;
     /** Directory for persisting the Tuya session across restarts (Homebridge storage path). */
@@ -33,15 +31,11 @@ export interface EufyCloudConfig {
 }
 
 function buildServiceArea(config: EufyCloudConfig): ServiceAreaDef | null {
-    const mapId = config.mapId ?? null;
-    let areas: ServiceAreaDef['areas'];
-    if (config.rooms && config.rooms.length > 0) {
-        areas = config.rooms.map((r) => ({ areaId: r.id, mapId, name: r.name }));
-    } else if (config.placeholderRooms && config.placeholderRooms > 0) {
-        areas = Array.from({ length: config.placeholderRooms }, (_, i) => ({ areaId: i + 1, mapId, name: `Room ${i + 1}` }));
-    } else {
+    if (!config.rooms || config.rooms.length === 0) {
         return null;
     }
+    const mapId = config.mapId ?? null;
+    const areas = config.rooms.map((r) => ({ areaId: r.id, mapId, name: r.name }));
     return { areas, maps: config.mapId !== undefined ? [{ mapId: config.mapId, name: 'Map' }] : [] };
 }
 

@@ -97,7 +97,6 @@ either the **local** or the **cloud** backend.
 | `password` | cloud   | yes\*    | Eufy account password (\*required for cloud).           |
 | `mop`      | cloud   | no       | `true` for Hybrid models — exposes Vacuum/Mop/Vacuum & Mop clean modes. |
 | `rooms`    | cloud   | no       | List of `{ "id": <room id>, "name": "..." }` for Apple Home room selection (Service Area). |
-| `placeholderRooms`| cloud   | no       | If `rooms` is omitted, generate this many placeholder rooms (`Room 1..N`, ids `1..N`). |
 | `mapId`    | cloud   | no       | Map the rooms belong to (usually leave blank).          |
 
 ### Rooms (Service Area)
@@ -115,9 +114,9 @@ eufy cloud doesn't expose the robot's room list, so you define it yourself:
 
 Selecting rooms in Home and starting a clean sends the robot a room‑clean for
 those ids; with none selected it does a full clean. The `id` must match the
-robot's **map room id**. To discover them, set `"placeholderRooms": 6` first — you'll
-get `Room 1…6`; clean one, see which room the robot runs, then replace the
-placeholders with proper `rooms` names/ids.
+robot's **map room id**. To discover them, add a few rooms named `Room 1`,
+`Room 2`, … (ids `1`, `2`, …), clean each one from Home to see which real room
+it runs, then rename them accordingly and delete any that aren't real rooms.
 
 ### Troubleshooting: connects but every command times out
 

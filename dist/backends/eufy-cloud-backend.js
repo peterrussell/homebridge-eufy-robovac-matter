@@ -18,17 +18,11 @@ const eufy_login_1 = require("../eufy/eufy-login");
 const protos_1 = require("../eufy/protos");
 const backend_1 = require("./backend");
 function buildServiceArea(config) {
-    const mapId = config.mapId ?? null;
-    let areas;
-    if (config.rooms && config.rooms.length > 0) {
-        areas = config.rooms.map((r) => ({ areaId: r.id, mapId, name: r.name }));
-    }
-    else if (config.placeholderRooms && config.placeholderRooms > 0) {
-        areas = Array.from({ length: config.placeholderRooms }, (_, i) => ({ areaId: i + 1, mapId, name: `Room ${i + 1}` }));
-    }
-    else {
+    if (!config.rooms || config.rooms.length === 0) {
         return null;
     }
+    const mapId = config.mapId ?? null;
+    const areas = config.rooms.map((r) => ({ areaId: r.id, mapId, name: r.name }));
     return { areas, maps: config.mapId !== undefined ? [{ mapId: config.mapId, name: 'Map' }] : [] };
 }
 // Suction clean modes (vacuum-only), index-aligned with NOVEL_CLEAN_SPEEDS.
