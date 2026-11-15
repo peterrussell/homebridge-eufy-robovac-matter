@@ -24,8 +24,8 @@ export interface EufyCloudConfig {
     mop?: boolean;
     /** User-defined rooms/zones for Service Area (id must match the robot's map room id). */
     rooms?: Array<{ id: number; name: string }>;
-    /** Number of placeholder zones ("Zone 1".."Zone N") when rooms aren't listed. */
-    zoneCount?: number;
+    /** Number of placeholder rooms ("Room 1".."Room N") when rooms aren't listed. */
+    placeholderRooms?: number;
     /** Map id the rooms belong to (optional). */
     mapId?: number;
     /** Directory for persisting the Tuya session across restarts (Homebridge storage path). */
@@ -37,8 +37,8 @@ function buildServiceArea(config: EufyCloudConfig): ServiceAreaDef | null {
     let areas: ServiceAreaDef['areas'];
     if (config.rooms && config.rooms.length > 0) {
         areas = config.rooms.map((r) => ({ areaId: r.id, mapId, name: r.name }));
-    } else if (config.zoneCount && config.zoneCount > 0) {
-        areas = Array.from({ length: config.zoneCount }, (_, i) => ({ areaId: i + 1, mapId, name: `Zone ${i + 1}` }));
+    } else if (config.placeholderRooms && config.placeholderRooms > 0) {
+        areas = Array.from({ length: config.placeholderRooms }, (_, i) => ({ areaId: i + 1, mapId, name: `Room ${i + 1}` }));
     } else {
         return null;
     }

@@ -78,7 +78,7 @@ class EufyRobovacMatterPlatform {
                     .map((r) => ({ id: typeof r.id === 'number' ? r.id : parseInt(String(r.id), 10), name: typeof r.name === 'string' && r.name.trim() ? r.name.trim() : `Room ${r.id}` }))
                     .filter((r) => Number.isFinite(r.id))
                 : undefined;
-            const zoneCount = typeof entry.zoneCount === 'number' && entry.zoneCount > 0 ? entry.zoneCount : undefined;
+            const placeholderRooms = typeof entry.placeholderRooms === 'number' && entry.placeholderRooms > 0 ? entry.placeholderRooms : undefined;
             const mapId = typeof entry.mapId === 'number' ? entry.mapId : undefined;
             const requestedBackend = typeof entry.backend === 'string' ? entry.backend.trim().toLowerCase() : 'auto';
             // Decide backend: explicit `backend`, else infer from the fields present.
@@ -91,7 +91,7 @@ class EufyRobovacMatterPlatform {
                 devices.push({
                     name,
                     serial: deviceId,
-                    backend: new eufy_cloud_backend_1.EufyCloudBackend({ name, email, password, deviceId, mop, rooms, zoneCount, mapId, storagePath: this.api.user.storagePath() }, this.log),
+                    backend: new eufy_cloud_backend_1.EufyCloudBackend({ name, email, password, deviceId, mop, rooms, placeholderRooms, mapId, storagePath: this.api.user.storagePath() }, this.log),
                 });
                 continue;
             }

@@ -18,8 +18,8 @@ export interface EufyCloudConfig {
         id: number;
         name: string;
     }>;
-    /** Number of placeholder zones ("Zone 1".."Zone N") when rooms aren't listed. */
-    zoneCount?: number;
+    /** Number of placeholder rooms ("Room 1".."Room N") when rooms aren't listed. */
+    placeholderRooms?: number;
     /** Map id the rooms belong to (optional). */
     mapId?: number;
     /** Directory for persisting the Tuya session across restarts (Homebridge storage path). */

@@ -23,8 +23,8 @@ function buildServiceArea(config) {
     if (config.rooms && config.rooms.length > 0) {
         areas = config.rooms.map((r) => ({ areaId: r.id, mapId, name: r.name }));
     }
-    else if (config.zoneCount && config.zoneCount > 0) {
-        areas = Array.from({ length: config.zoneCount }, (_, i) => ({ areaId: i + 1, mapId, name: `Zone ${i + 1}` }));
+    else if (config.placeholderRooms && config.placeholderRooms > 0) {
+        areas = Array.from({ length: config.placeholderRooms }, (_, i) => ({ areaId: i + 1, mapId, name: `Room ${i + 1}` }));
     }
     else {
         return null;
