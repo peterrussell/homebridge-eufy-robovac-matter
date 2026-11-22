@@ -36,35 +36,35 @@ sure, start with cloud. The backend is chosen per device in the config.
 
 ## Installation
 
-This plugin is published on **GitHub only** (not the npm registry), so it is
-installed from the repository URL rather than through the Homebridge UI's plugin
-search.
+### Homebridge UI (recommended)
 
-On the machine running Homebridge, run:
+In the Homebridge UI, open **Plugins**, search for
+`homebridge-eufy-clean-robovac-matter` (or just "eufy robovac matter"), and click
+**Install**. Then configure it from the form it provides and restart Homebridge
+when prompted.
+
+### Command line
+
+On the machine running Homebridge:
 
 ```bash
-sudo npm install -g git+https://github.com/peterrussell/homebridge-eufy-robovac-matter.git
+sudo npm install -g homebridge-eufy-clean-robovac-matter
 ```
 
-The built `dist/` is committed to the repo, so there is **no build step** and no
-dev dependencies are pulled in. Restart Homebridge afterwards — the plugin and
-its settings form then appear in the Homebridge UI under **Plugins**, where you
-can configure it like any other plugin.
-
-> **Official Raspberry Pi image / hb-service:** that image runs Homebridge under
-> its own bundled Node, which a global `npm install -g` may not land in. If
-> Homebridge doesn't list the plugin after a restart, install it into
-> Homebridge's storage directory instead:
-> ```bash
-> cd /var/lib/homebridge
-> sudo npm install git+https://github.com/peterrussell/homebridge-eufy-robovac-matter.git
-> sudo hb-service restart
-> ```
+Restart Homebridge afterwards. The plugin and its settings form then appear in
+the Homebridge UI under **Plugins**, where you can configure it like any other
+plugin.
 
 ### Updating
 
-Re-run the same install command and restart Homebridge; npm re-fetches the
-latest commit on the default branch.
+Update from the Homebridge UI's **Plugins** page, or on the command line:
+
+```bash
+sudo npm install -g homebridge-eufy-clean-robovac-matter@latest
+```
+
+To run an unreleased version from source instead, see
+[Building from source](#building-from-source).
 
 ## Getting your credentials
 
@@ -223,14 +223,20 @@ connection is fine but the robot can't decode the requests — almost always a
 
 ## Building from source
 
+To build the plugin yourself (e.g. to run an unreleased commit):
+
 ```bash
+git clone https://github.com/peterrussell/homebridge-eufy-robovac-matter.git
+cd homebridge-eufy-robovac-matter
 npm install
 npm run build
 ```
 
-The compiled output goes to `dist/` (which is committed so installs need no
-build). Runtime dependencies are kept minimal: only `protobufjs` and `tuyapi`;
-everything else uses Node's built‑in `fetch`/`crypto`.
+The compiled output goes to `dist/` (which is committed, so a plain install
+needs no build). To use a local checkout with Homebridge, install it by path —
+`sudo npm install -g .` from the checkout — then restart Homebridge. Runtime
+dependencies are kept minimal: only `protobufjs` and `tuyapi`; everything else
+uses Node's built‑in `fetch`/`crypto`.
 
 ## Credits & license
 
