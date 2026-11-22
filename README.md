@@ -1,52 +1,111 @@
 # homebridge-eufy-robovac-matter
 
 A [Homebridge](https://homebridge.io) 2.x plugin that exposes a **Eufy RoboVac**
-as a **native Matter Robotic Vacuum Cleaner** device, controlled locally over
-the Tuya LAN protocol.
+as a **native Matter Robotic Vacuum Cleaner** device.
 
-Unlike the classic HomeKit integration — which has to present a vacuum as a fan
-or a switch, because HomeKit (HAP) has no vacuum type — this plugin publishes the
-robot through Homebridge 2's Matter support (`api.matter`). In the Home app it
-shows up as a real robot vacuum tile with **start / pause / return‑to‑dock**,
-**suction mode**, **operational state**, and **battery**.
+Classic HomeKit (HAP) has no vacuum type, so the usual integrations have to fake
+a robot as a fan or a switch. This plugin instead publishes the robot through
+Homebridge 2's Matter support (`api.matter`), so in the Home app it appears as a
+real **robot vacuum tile** with **start / pause / return‑to‑dock**, **clean
+mode**, **operational state**, **battery**, and — on supported models — **Find
+the robot** and **per‑room (Service Area)** cleaning.
 
-This is a Matter‑native rebuild of
-[@hov3rcraft/homebridge-eufy-robovac](https://github.com/hov3rcraft/homebridge-eufy-robovac);
-the local TuyAPI control layer (and therefore the model support and its limits)
-is carried over from that project.
+> **Unofficial / community plugin.** Not affiliated with, authorised by, or
+> supported by Anker, eufy, or Tuya. It talks to the same APIs the eufy app
+> uses; those are not public and may change at any time.
+
+## Two control backends
+
+| Backend | Use for | Needs |
+| ------- | ------- | ----- |
+| **Cloud** (recommended for current models) | Newer "novel"‑protocol robots such as the **Eufy Clean L60**, which don't speak the legacy local protocol | Your eufy email + password, and the device ID (internet required) |
+| **Local (Tuya LAN)** | Older/legacy RoboVacs (G/C‑series etc.) | `deviceId` + `localKey` (no cloud, no internet) |
+
+Most robots sold in the last few years need the **cloud** backend. If you're not
+sure, start with cloud. The backend is chosen per device in the config.
 
 ## Requirements
 
-- **Homebridge 2.0+** (the `api.matter` API ships in Homebridge 2.0, released
-  May 2026).
-- **Matter enabled** on the Homebridge instance (or child bridge) that runs this
-  plugin. See "Matter setup" below.
+- **Homebridge 2.0+** (the `api.matter` API ships in Homebridge 2.0) on **Node 20+**.
+- **Matter enabled** on the Homebridge instance (or child bridge) running this
+  plugin — see [Matter setup](#matter-setup).
 - A **Matter controller**: Apple Home (**iOS 18.4+** is required for robot
   vacuums), Amazon Alexa, Google Home, Home Assistant, SmartThings, etc.
-- The robot and Homebridge on the **same local network** (Matter also needs
-  working IPv6/mDNS on that subnet).
+- The robot and Homebridge on the **same local network**, with working
+  IPv6/mDNS on that subnet (Matter needs it).
 
-> **Two backends.** The plugin supports both:
-> - **Local (Tuya LAN)** — older/legacy RoboVacs (G/C‑series etc.). Direct local
->   control with `deviceId` + `localKey`; no cloud, no internet needed.
-> - **Cloud (eufy account)** — newer "novel"‑protocol models such as the **Eufy
->   Clean L60**, which don't speak the legacy local protocol. Logs in with your
->   eufy email/password and controls the robot via the eufy/Tuya cloud (needs
->   internet; a little more latency than local).
->
-> The backend is chosen per device from its config (see below).
+## Installation
 
-## Getting `deviceId` and `localKey`
+This plugin is published on **GitHub only** (not the npm registry), so it is
+installed from the repository URL rather than through the Homebridge UI's plugin
+search.
 
-Each robot needs its Tuya **device ID** and **local key**. Obtain them with the
-[eufy-clean-local-key-grabber](https://github.com/Rjevski/eufy-clean-local-key-grabber)
-(same method as the upstream plugin). Setting a static **IP** for the robot is
-optional but recommended.
+On the machine running Homebridge, run:
+
+```bash
+sudo npm install -g git+https://github.com/peterrussell/homebridge-eufy-robovac-matter.git
+```
+
+The built `dist/` is committed to the repo, so there is **no build step** and no
+dev dependencies are pulled in. Restart Homebridge afterwards — the plugin and
+its settings form then appear in the Homebridge UI under **Plugins**, where you
+can configure it like any other plugin.
+
+> **Official Raspberry Pi image / hb-service:** that image runs Homebridge under
+> its own bundled Node, which a global `npm install -g` may not land in. If
+> Homebridge doesn't list the plugin after a restart, install it into
+> Homebridge's storage directory instead:
+> ```bash
+> cd /var/lib/homebridge
+> sudo npm install git+https://github.com/peterrussell/homebridge-eufy-robovac-matter.git
+> sudo hb-service restart
+> ```
+
+### Updating
+
+Re-run the same install command and restart Homebridge; npm re-fetches the
+latest commit on the default branch.
+
+## Getting your credentials
+
+### Cloud backend
+
+You need your **eufy account email + password** and the robot's **device ID**.
+The easiest way to get the device ID is the
+[eufy-clean-local-key-grabber](https://github.com/Rjevski/eufy-clean-local-key-grabber),
+which lists your devices and their IDs (it also prints the local key, which the
+cloud backend doesn't need).
+
+### Local backend
+
+Older models need the Tuya **device ID** and **local key**, obtained with the
+same [eufy-clean-local-key-grabber](https://github.com/Rjevski/eufy-clean-local-key-grabber).
+Setting a static **IP** for the robot is optional but recommended.
 
 ## Configuration
 
-Add the platform via the Homebridge UI, or in `config.json`. Each device uses
-either the **local** or the **cloud** backend.
+Add the platform via the Homebridge UI (recommended — it renders a form from the
+plugin's config schema), or edit `config.json` directly. Each device uses either
+the **cloud** or the **local** backend.
+
+**Cloud backend** (novel models such as the L60):
+
+```json
+{
+  "platform": "EufyRobovacMatter",
+  "name": "Eufy RoboVac (Matter)",
+  "devices": [
+    {
+      "name": "L60",
+      "backend": "cloud",
+      "deviceId": "xxxxxxxxxxxxxxxxxxxx",
+      "email": "you@example.com",
+      "password": "your-eufy-password",
+      "mop": true
+    }
+  ]
+}
+```
 
 **Local backend** (older/legacy models):
 
@@ -67,42 +126,26 @@ either the **local** or the **cloud** backend.
 }
 ```
 
-**Cloud backend** (novel models such as the L60):
-
-```json
-{
-  "platform": "EufyRobovacMatter",
-  "name": "Eufy RoboVac (Matter)",
-  "devices": [
-    {
-      "name": "L60",
-      "backend": "cloud",
-      "deviceId": "xxxxxxxxxxxxxxxxxxxx",
-      "email": "you@example.com",
-      "password": "your-eufy-password"
-    }
-  ]
-}
-```
-
 | Field      | Backend | Required | Description                                             |
 | ---------- | ------- | -------- | ------------------------------------------------------- |
 | `name`     | both    | yes      | Name shown for the robot in your Matter/Home app.       |
 | `backend`  | both    | no       | `auto` (default), `local`, or `cloud`. `auto` picks local when a `localKey` is set, otherwise cloud. |
 | `deviceId` | both    | yes      | Tuya/eufy device ID.                                    |
-| `localKey` | local   | yes\*    | Tuya local key (\*required for local).                  |
-| `deviceIp` | local   | no       | Static IP of the robot (improves local performance).    |
-| `protocolVersion` | local | no | Tuya LAN protocol version (`3.3` default, or `3.4` / `3.5` / `3.1`). |
 | `email`    | cloud   | yes\*    | Eufy account email (\*required for cloud).              |
 | `password` | cloud   | yes\*    | Eufy account password (\*required for cloud).           |
 | `mop`      | cloud   | no       | `true` for Hybrid models — exposes Vacuum/Mop/Vacuum & Mop clean modes. |
-| `rooms`    | cloud   | no       | List of `{ "id": <room id>, "name": "..." }` for Apple Home room selection (Service Area). |
+| `rooms`    | cloud   | no       | List of `{ "id": <room id>, "name": "..." }` for Apple Home room selection (Service Area). See [Rooms](#rooms-service-area). |
 | `mapId`    | cloud   | no       | Map the rooms belong to (usually leave blank).          |
+| `localKey` | local   | yes\*    | Tuya local key (\*required for local).                  |
+| `deviceIp` | local   | no       | Static IP of the robot (improves local performance).    |
+| `protocolVersion` | local | no | Tuya LAN protocol version (`3.3` default, or `3.4` / `3.5` / `3.1`). |
 
 ### Rooms (Service Area)
 
 Apple Home (iOS 18.4+) can show **per‑room selection** for Matter vacuums. The
-eufy cloud doesn't expose the robot's room list, so you define it yourself:
+eufy cloud doesn't expose the robot's room list (the map, including room names,
+is streamed over a proprietary P2P channel the plugin can't read), so you define
+the rooms yourself:
 
 ```json
 {
@@ -123,18 +166,6 @@ restarts **never overwrite** your edits — once the `rooms` key exists (even if
 you empty it), the plugin leaves it alone. To discover the real ids, clean each
 placeholder from Home to see which room it runs, then rename it — and add or
 remove rows — to match your robot's rooms.
-
-### Troubleshooting: connects but every command times out
-
-If the log shows `Connected to device!` but then `Timeout waiting for status response`,
-the TCP connection is fine but the robot can't decode the requests — almost always a
-**protocol version** or **localKey** mismatch:
-
-1. Set `protocolVersion` to **`3.4`**, restart, and test. If still timing out, try **`3.5`**.
-2. If no version works, your **`localKey` is likely stale** (it rotates whenever the robot is
-   re-added in the eufy app). Re-grab it with the key grabber and update the config.
-3. Make sure nothing else holds the single local connection — close the eufy app and stop any
-   other local Tuya integration polling the robot.
 
 ## Matter setup
 
@@ -158,9 +189,37 @@ appears independently.
 | Matter cluster          | Behaviour                                                                                  |
 | ----------------------- | ------------------------------------------------------------------------------------------ |
 | **RvcRunMode**          | `Cleaning` → start cleaning; `Idle` → return to dock.                                       |
-| **RvcOperationalState** | `pause` / `resume` / `goHome`; state reports Running, Paused, Seeking charger, Charging, Docked, Error. |
-| **RvcCleanMode**        | `Standard` / `Turbo` (BoostIQ) / `Max` → Eufy suction speed.                                 |
+| **RvcOperationalState** | `pause` / `resume` / `goHome`; reports Running, Paused, Seeking charger, Charging, Docked, Error. |
+| **RvcCleanMode**        | Suction level (`Standard` / `Turbo` / `Max`), or Vacuum / Mop / Vacuum & Mop on `mop` models. |
 | **PowerSource**         | Battery percentage and charge state.                                                        |
+| **Identify**            | "Find the robot" (where the model supports it).                                             |
+| **ServiceArea**         | Per‑room selection (see [Rooms](#rooms-service-area)).                                      |
+
+> Not every model exposes every feature; the plugin advertises only what the
+> robot reports and degrades gracefully otherwise. Note that **Apple Home
+> doesn't surface clean‑mode selection** for vacuums — other Matter controllers
+> (Alexa, Home Assistant, SmartThings) do.
+
+## Troubleshooting
+
+**Cloud: "logged in too many times today" (USER_SESSION_LIMIT).** The eufy cloud
+caps daily logins. The plugin persists its session between restarts to avoid
+this; if you hit it, wait and it clears — a healthy start logs
+`Resumed saved Tuya cloud session (no login needed)`.
+
+**Local: connects but every command times out.** If the log shows
+`Connected to device!` then `Timeout waiting for status response`, the TCP
+connection is fine but the robot can't decode the requests — almost always a
+**protocol version** or **localKey** mismatch:
+
+1. Set `protocolVersion` to **`3.4`**, restart, and test. If still timing out, try **`3.5`**.
+2. If no version works, your **`localKey` is likely stale** (it rotates whenever the robot is
+   re-added in the eufy app). Re-grab it and update the config.
+3. Make sure nothing else holds the single local connection — close the eufy app and stop any
+   other local Tuya integration polling the robot.
+
+**Device doesn't appear in Apple Home.** Confirm Matter is enabled on the
+(child) bridge, you're on iOS 18.4+, and IPv6/mDNS works on your network.
 
 ## Building from source
 
@@ -169,16 +228,20 @@ npm install
 npm run build
 ```
 
+The compiled output goes to `dist/` (which is committed so installs need no
+build). Runtime dependencies are kept minimal: only `protobufjs` and `tuyapi`;
+everything else uses Node's built‑in `fetch`/`crypto`.
+
 ## Credits & license
 
-- **Local Tuya control** ported from
+- **Matter integration** uses Homebridge 2's `api.matter` plugin API.
+- **Local Tuya control** is ported from
   [@hov3rcraft/homebridge-eufy-robovac](https://github.com/hov3rcraft/homebridge-eufy-robovac)
   (itself a rewrite of the original by apexad).
 - **Cloud (novel) protocol** — the eufy/Tuya‑cloud login, the novel DPS map, the
   protobuf command/state definitions and the error codes are a self‑contained
   port of [martijnpoppen/eufy-clean](https://github.com/martijnpoppen/eufy-clean)
-  (MIT). This plugin reimplements the relevant pieces using Node's built‑in
-  `fetch`/`crypto` and `protobufjs` rather than depending on that library.
-- Matter integration follows Homebridge 2's `api.matter` plugin API.
+  (MIT), reimplemented here with Node's built‑in `fetch`/`crypto` and
+  `protobufjs` rather than depending on that library.
 
 MIT
