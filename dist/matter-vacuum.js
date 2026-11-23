@@ -25,8 +25,49 @@ const OP_STATE_DOCKED = 66;
 const BAT_CHARGE_IS_CHARGING = 1;
 const BAT_CHARGE_IS_AT_FULL = 2;
 const BAT_CHARGE_IS_NOT_CHARGING = 3;
-// Generic RVC "Stuck" error state used to surface any device error to Matter.
-const ERR_STUCK = 65;
+// Matter RVC OperationalState ErrorStateEnum values we emit. Only standard ids
+// are allowed here: ids 128-191 are manufacturer-specific and matter.js rejects
+// them, and ErrorStateLabel/Details may ONLY be set alongside an id in that
+// 128-191 range - so for standard ids we must NOT attach a label.
+const MATTER_ERR_UNABLE_TO_COMPLETE = 2; // generic fallback (base OperationalState enum)
+const MATTER_ERR_FAILED_TO_FIND_DOCK = 64;
+const MATTER_ERR_STUCK = 65;
+const MATTER_ERR_DUST_BIN_MISSING = 66;
+const MATTER_ERR_DUST_BIN_FULL = 67;
+const MATTER_ERR_WATER_TANK_EMPTY = 68;
+const MATTER_ERR_WATER_TANK_MISSING = 69;
+const MATTER_ERR_MOP_PAD_MISSING = 71;
+// Map eufy novel error codes (see EUFY_ERROR_CODES) to the closest standard
+// Matter RVC error state. Anything not listed falls back to a generic error.
+const EUFY_TO_MATTER_ERROR = {
+    1: MATTER_ERR_STUCK, // crash buffer stuck
+    2: MATTER_ERR_STUCK, // wheel stuck
+    3: MATTER_ERR_STUCK, // side brush stuck
+    4: MATTER_ERR_STUCK, // rolling brush stuck
+    5: MATTER_ERR_STUCK, // host trapped
+    6: MATTER_ERR_STUCK, // machine trapped
+    7: MATTER_ERR_STUCK, // wheel overhanging
+    13: MATTER_ERR_STUCK, // host tilted
+    14: MATTER_ERR_DUST_BIN_MISSING, // no dust box
+    18: MATTER_ERR_STUCK, // laser cover stuck
+    19: MATTER_ERR_STUCK, // laser sensor stuck
+    20: MATTER_ERR_STUCK, // laser blocked
+    21: MATTER_ERR_FAILED_TO_FIND_DOCK, // dock failed
+    40: MATTER_ERR_MOP_PAD_MISSING, // mop cloth dislodged
+    51: MATTER_ERR_STUCK, // camera blocked
+    52: MATTER_ERR_FAILED_TO_FIND_DOCK, // unable to leave station
+    70: MATTER_ERR_DUST_BIN_FULL, // clean dust collector
+    72: MATTER_ERR_WATER_TANK_EMPTY, // low water
+    74: MATTER_ERR_WATER_TANK_EMPTY, // clean water low
+    75: MATTER_ERR_WATER_TANK_MISSING, // water tank absent
+    102: MATTER_ERR_STUCK, // wheel module abnormal
+    103: MATTER_ERR_STUCK, // side brush abnormal
+    105: MATTER_ERR_STUCK, // roller brush motor abnormal
+};
+/** Pick a spec-valid Matter RVC error id for a device error (never 128-191). */
+function matterErrorId(errorCode) {
+    return (errorCode !== undefined && EUFY_TO_MATTER_ERROR[errorCode]) || MATTER_ERR_UNABLE_TO_COMPLETE;
+}
 function activityToMatter(activity) {
     switch (activity) {
         case 'cleaning':
@@ -65,9 +106,24 @@ async function registerEufyMatterVacuum(api, log, info, backend) {
         return undefined;
     }
     const uuid = matter.uuid.generate(`${settings_1.PLUGIN_NAME}:${info.serial}`);
+    let lastLoggedError = null;
     const pushState = (state) => {
         const { operationalState, runMode } = activityToMatter(state.activity);
-        const operationalError = state.activity === 'error' ? { errorStateId: ERR_STUCK, errorStateLabel: state.error ?? 'Error' } : { errorStateId: 0 };
+        // Surface the (now label-less) device error in the log, once per change.
+        const currentError = state.activity === 'error' ? state.error ?? 'unknown error' : null;
+        if (currentError !== lastLoggedError) {
+            if (currentError) {
+                log.warn(`[${info.name}] device reports error: ${currentError}`);
+            }
+            else if (lastLoggedError) {
+                log.info(`[${info.name}] device error cleared.`);
+            }
+            lastLoggedError = currentError;
+        }
+        // Matter forbids ErrorStateLabel unless the id is manufacturer-specific
+        // (128-191), which matter.js rejects anyway - so emit a standard id only,
+        // with no label. The human-readable detail is logged by the backend.
+        const operationalError = state.activity === 'error' ? { errorStateId: matterErrorId(state.errorCode) } : { errorStateId: 0 };
         const updates = [
             ['rvcRunMode', { currentMode: runMode }],
             ['rvcOperationalState', { operationalState, operationalError }],

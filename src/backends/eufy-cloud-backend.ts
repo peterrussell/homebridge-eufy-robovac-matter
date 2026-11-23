@@ -161,17 +161,20 @@ export class EufyCloudBackend implements VacuumBackend {
 
         // Error (dp 177, protobuf).
         let error: string | null = null;
+        let errorCode: number | undefined;
         const errorRaw = dps[NOVEL_DPS.ERROR_CODE];
         if (typeof errorRaw === 'string' && errorRaw) {
             try {
                 const code = decodeErrorCode(errorRaw);
                 if (code && code !== 0) {
+                    errorCode = code;
                     error = friendlyError(code);
                 }
             } catch (e) {
                 this.log.debug(`[${this.config.name}] could not decode error dp:`, e);
             }
         } else if (typeof errorRaw === 'number' && errorRaw > 0) {
+            errorCode = errorRaw;
             error = friendlyError(errorRaw);
         }
 
@@ -195,6 +198,7 @@ export class EufyCloudBackend implements VacuumBackend {
             batteryLevel: Number.isFinite(batteryLevel) && batteryLevel >= 0 ? batteryLevel : -1,
             charging: activity === 'charging' || activity === 'docked',
             error,
+            errorCode,
             cleanMode: this.currentCleanMode(dps),
         };
     }

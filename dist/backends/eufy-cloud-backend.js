@@ -136,11 +136,13 @@ class EufyCloudBackend {
         const batteryLevel = typeof batteryRaw === 'number' ? batteryRaw : typeof batteryRaw === 'string' ? parseInt(batteryRaw, 10) : -1;
         // Error (dp 177, protobuf).
         let error = null;
+        let errorCode;
         const errorRaw = dps[constants_1.NOVEL_DPS.ERROR_CODE];
         if (typeof errorRaw === 'string' && errorRaw) {
             try {
                 const code = (0, protos_1.decodeErrorCode)(errorRaw);
                 if (code && code !== 0) {
+                    errorCode = code;
                     error = (0, constants_1.friendlyError)(code);
                 }
             }
@@ -149,6 +151,7 @@ class EufyCloudBackend {
             }
         }
         else if (typeof errorRaw === 'number' && errorRaw > 0) {
+            errorCode = errorRaw;
             error = (0, constants_1.friendlyError)(errorRaw);
         }
         // Work status (dp 153, protobuf).
@@ -171,6 +174,7 @@ class EufyCloudBackend {
             batteryLevel: Number.isFinite(batteryLevel) && batteryLevel >= 0 ? batteryLevel : -1,
             charging: activity === 'charging' || activity === 'docked',
             error,
+            errorCode,
             cleanMode: this.currentCleanMode(dps),
         };
     }

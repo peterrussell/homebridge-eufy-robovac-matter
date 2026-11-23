@@ -59,6 +59,8 @@ export interface VacuumState {
     charging: boolean;
     /** Friendly error message, or null when there is no error. */
     error: string | null;
+    /** Raw device error code (backend-specific), or undefined when unknown. Used to pick a Matter error state. */
+    errorCode?: number;
     /** Index into the backend's cleanModes, or null when unknown. */
     cleanMode: number | null;
 }
